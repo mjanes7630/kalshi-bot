@@ -16,13 +16,17 @@ def display_trade_prices(prices: list[int], midpoint: float) -> None:
 
 
 def main() -> None:
-    market = Market(
-        ticker="FEDRATE-2026-SEP",
-        title="Federal Funds Rate",
-        best_bid=42,
-        best_ask=44,
-        recent_trade_prices=[41, 42, 43, 42, 45],
-    )
+    try:
+        market = Market(
+            ticker="FEDRATE-2026-SEP",
+            title="Federal Funds Rate",
+            best_bid=42,
+            best_ask=44,
+            recent_trade_prices=[41, 42, 43, 42, 45],
+        )
+    except(TypeError, ValueError) as error:
+        print(f"Unable to create market: {error}")
+        return
 
     spread = market.calculate_spread()
     midpoint = market.calculate_midpoint()
