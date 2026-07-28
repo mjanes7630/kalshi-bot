@@ -2,6 +2,7 @@ import pytest
 
 from kalshi_bot.models.market import Market
 
+
 @pytest.fixture
 def market() -> Market:
     return Market(
@@ -67,14 +68,14 @@ def test_calculate_average_trade_price(market: Market) -> None:
             "trade_prices must be between 0 and 100",
             id="bid-below-minimum",
         ),
-    ]
+    ],
 )
 def test_rejects_prices_outside_valid_range(
     best_bid: int,
     best_ask: int,
     recent_trade_prices: list[int],
     expected_message: str,
-)-> None:
+) -> None:
     with pytest.raises(
         ValueError,
         match=expected_message,
@@ -91,42 +92,42 @@ def test_rejects_prices_outside_valid_range(
 def test_rejects_crossed_market() -> None:
     with pytest.raises(
         ValueError,
-        match = "best_bid cannot be greater than best_ask",
+        match="best_bid cannot be greater than best_ask",
     ):
         Market(
             ticker="INVALID",
             title="Invalid Market",
-            best_bid = 60,
-            best_ask = 40,
-            recent_trade_prices = [50],
+            best_bid=60,
+            best_ask=40,
+            recent_trade_prices=[50],
         )
 
 
 def test_rejects_non_integer_price() -> None:
     with pytest.raises(
         TypeError,
-        match = "best_bid must be an integer",
+        match="best_bid must be an integer",
     ):
         Market(
             ticker="INVALID",
             title="Invalid Market",
-            best_bid = 42.5,
-            best_ask = 44,
-            recent_trade_prices = [43],
+            best_bid=42.5,
+            best_ask=44,
+            recent_trade_prices=[43],
         )
 
 
 def test_average_rejects_empty_trade_list() -> None:
     market = Market(
-        ticker = "NO-TRADES",
-        title = "Market Without Trades",
-        best_bid = 42,
-        best_ask = 44,
-        recent_trade_prices = [],
+        ticker="NO-TRADES",
+        title="Market Without Trades",
+        best_bid=42,
+        best_ask=44,
+        recent_trade_prices=[],
     )
 
     with pytest.raises(
         ValueError,
-        match = "Cannot calculate average trade price with no recent trade prices"
+        match="Cannot calculate average trade price with no recent trade prices",
     ):
         market.calculate_average_trade_price()

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+
 @dataclass
 class Market:
     ticker: str
@@ -7,7 +8,6 @@ class Market:
     best_bid: int
     best_ask: int
     recent_trade_prices: list[int]
-
 
     def __post_init__(self) -> None:
         self._validate_price(self.best_bid, "best_bid")
@@ -22,7 +22,6 @@ class Market:
                 f"Received bid={self.best_bid}, ask={self.best_ask}"
             )
 
-    
     @staticmethod
     def _validate_price(price: int, field_name: str) -> None:
         if not isinstance(price, int) or isinstance(price, bool):
@@ -33,10 +32,8 @@ class Market:
 
         if not 0 <= price <= 100:
             raise ValueError(
-                f"{field_name} must be between 0 and 100.  "
-                f"Received: {price}"
+                f"{field_name} must be between 0 and 100.  Received: {price}"
             )
-
 
     def calculate_spread(self) -> int:
         return self.best_ask - self.best_bid
@@ -46,6 +43,8 @@ class Market:
 
     def calculate_average_trade_price(self) -> float:
         if not self.recent_trade_prices:
-            raise ValueError("Cannot calculate average trade price with no recent trade prices")
+            raise ValueError(
+                "Cannot calculate average trade price with no recent trade prices"
+            )
 
         return sum(self.recent_trade_prices) / len(self.recent_trade_prices)
