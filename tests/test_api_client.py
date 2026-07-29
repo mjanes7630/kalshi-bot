@@ -52,7 +52,7 @@ def test_get_markets_sends_request_and_parses_response() -> None:
 
 
 def test_get_markets_raises_for_unsuccessful_response() -> None:
-    def handler(request: httpx.request) -> httpx.Response:
+    def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             503,
             json={"error": "Service unavailable"},

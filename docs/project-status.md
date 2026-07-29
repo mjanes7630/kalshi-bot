@@ -208,3 +208,77 @@ Routine formatting, linting, and testing can be run together:
 uv run ruff format .
 uv run ruff check .
 uv run python -m pytest -v
+```
+
+Command explanation:
+
+- `ruff format` applies Ruff’s formatting rules.
+- `ruff check` runs Ruff’s lint and code-quality checks.
+- `python -m pytest` runs the test suite through Python.
+- Each `.` represents the current directory and its applicable files.
+- Each line is a separate PowerShell command and runs sequentially.
+
+Expected results:
+
+- Ruff completes formatting successfully.
+- Ruff reports `All checks passed!`
+- pytest reports `21 passed`
+
+## Completed checkpoints
+
+### Day 1
+
+- Created the Python project
+- Configured uv, pytest, Ruff, Cursor, and GitHub
+- Added the initial package and test structure
+
+### Day 2
+
+- Created the `Market` dataclass
+- Added market calculations and validation
+- Added market unit tests
+
+### Day 3
+
+- Added typed application settings
+- Added `.env` configuration
+- Protected `.env` from Git
+- Added human-readable development logs
+- Added JSON production logs
+- Updated `main.py` to use structured logging
+- Added configuration and logging tests
+- Verified all tests, linting, and formatting
+- Committed and pushed the completed work to `origin/main`
+
+### Day 4
+
+- Migrated market prices from integer cents to `Decimal` dollar values
+- Updated the market model, application, and tests for decimal prices
+- Added Pydantic as a direct dependency
+- Added typed models for Kalshi market responses
+- Included YES and NO bid-and-ask dollar fields
+- Added the typed `GetMarketsResponse` pagination model
+- Created the asynchronous, read-only `KalshiClient`
+- Added limit and cursor query-parameter support
+- Added HTTP status-error handling
+- Added mocked API-model and API-client tests
+- Verified all 21 tests
+- Verified Ruff formatting and linting
+
+## User preferences
+
+- Explain Python concepts in relation to C# where useful
+- Explain every PowerShell command, argument, operator, and symbol
+- The user manually types all code
+- Work incrementally rather than generating the entire bot at once
+- Bundle routine formatting, linting, and testing commands when possible
+- Use separate checkpoints when a result determines the next implementation step
+- Do not begin order placement until the underlying foundation is complete and tested
+
+## Next section
+
+Day 5: continue building the Kalshi API foundation.
+
+The next work should focus on safely expanding the API client and preparing
+for authenticated requests. Do not implement order placement or the
+market-making loop yet.
