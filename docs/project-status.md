@@ -8,15 +8,22 @@
 - uv for dependency management
 - pytest for testing
 - Ruff for linting and formatting
+- Pydantic for API-response validation
+- HTTPX for asynchronous HTTP requests
 - GitHub repository configured
 - Cursor launch configuration runs `kalshi_bot.main` as a module
 
 ## Project structure
 
+- `kalshi_bot/api/__init__.py`
+- `kalshi_bot/api/client.py`
+- `kalshi_bot/api/models.py`
 - `kalshi_bot/config.py`
 - `kalshi_bot/logging_config.py`
 - `kalshi_bot/main.py`
 - `kalshi_bot/models/market.py`
+- `tests/test_api_client.py`
+- `tests/test_api_models.py`
 - `tests/test_config.py`
 - `tests/test_logging_config.py`
 - `tests/test_market.py`
@@ -47,16 +54,61 @@ Validation runs through `__post_init__`.
 
 Prices:
 
-- Must be integers
-- Cannot be Boolean values
-- Must be between 0 and 100
+- Use `Decimal` dollar values instead of integer cents
+- Must be instances of `Decimal`
+- Must be between `Decimal("0")` and `Decimal("1")`
 - Best bid cannot exceed best ask
 - Empty trade lists are allowed, but calculating their average raises `ValueError`
+
+### API response models
+
+`kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi’s
+`GET /markets` response.
+
+`KalshiMarket` currently includes:
+
+- `ticker`
+- `title`
+- `yes_bid_dollars`
+- `yes_ask_dollars`
+- `no_bid_dollars`
+- `no_ask_dollars`
+- `last_price_dollars`
+
+Pydantic converts Kalshi’s fixed-point price strings into `Decimal` values.
+
+Unknown response fields are ignored so Kalshi can return additional fields
+without breaking the initial client.
+
+`GetMarketsResponse` contains:
+
+- A list of `KalshiMarket` objects
+- The pagination cursor
+
+### API client
+
+`kalshi_bot/api/client.py` contains the initial asynchronous `KalshiClient`.
+
+Current behavior:
+
+- Accepts an injected `httpx.AsyncClient`
+- Sends a read-only `GET /markets` request
+- Supports the `limit` parameter
+- Supports an optional pagination `cursor`
+- Raises `httpx.HTTPStatusError` for unsuccessful responses
+- Validates successful JSON responses through `GetMarketsResponse`
+- Does not place orders
+- Does not contain authentication or request-signing behavior yet
+
+The injected HTTP client keeps the API boundary testable without contacting
+the live Kalshi service.
 
 ### Application
 
 `main.py`:
 
+- Loads typed settings
+- Configures structured logging
 - Creates a sample market
 - Calculates its spread, midpoint, and average trade price
 - Classifies trades as below, at, or above the midpoint
@@ -100,21 +152,23 @@ Current application events include:
 
 ## Testing
 
-The test suite currently has 16 passing tests:
+The test suite currently has 21 passing tests:
 
-- 10 market tests
+- 11 market-model tests
 - 3 configuration tests
 - 3 logging tests
+- 2 API-model tests
+- 2 API-client tests
 
 Coverage includes:
 
-- Spread calculation
-- Midpoint calculation
-- Average trade price
-- Crossed markets
-- Incorrect price types
-- Empty trade-list averages
+- Decimal spread calculation
+- Decimal midpoint calculation
+- Decimal average trade-price calculation
+- Decimal price-type validation
 - Prices outside the valid range
+- Crossed markets
+- Empty trade-list averages
 - Parameterized validation cases
 - Default configuration values
 - `.env` loading
@@ -122,69 +176,35 @@ Coverage includes:
 - Development console logging
 - Production JSON logging
 - Log-level filtering
+- Fixed-point API price parsing
+- Nested market-response parsing
+- Pagination cursor parsing
+- HTTP method, path, and query parameters
+- Unsuccessful HTTP response handling
+- Mocked API requests without live network access
 
 Run the full test suite with:
 
 `uv run python -m pytest -v`
 
+Command explanation:
+
+- `uv` invokes the project-management tool.
+- `run` executes the remaining command inside the project environment.
+- `python` starts Python.
+- `-m` runs the following installed module.
+- `pytest` is the testing module.
+- `-v` enables verbose test output.
+
 Expected result:
 
-`16 passed`
+`21 passed`
 
 ## Quality checks
 
-Run Ruff linting with:
+Routine formatting, linting, and testing can be run together:
 
-`uv run ruff check .`
-
-Expected result:
-
-`All checks passed!`
-
-Verify formatting with:
-
-`uv run ruff format --check .`
-
-Expected result:
-
-`19 files already formatted`
-
-## Completed checkpoints
-
-### Day 1
-
-- Created the Python project
-- Configured uv, pytest, Ruff, Cursor, and GitHub
-- Added the initial package and test structure
-
-### Day 2
-
-- Created the `Market` dataclass
-- Added market calculations and validation
-- Added market unit tests
-
-### Day 3
-
-- Added typed application settings
-- Added `.env` configuration
-- Protected `.env` from Git
-- Added human-readable development logs
-- Added JSON production logs
-- Updated `main.py` to use structured logging
-- Added configuration and logging tests
-- Verified all tests, linting, and formatting
-- Committed and pushed the completed work to `origin/main`
-
-## User preferences
-
-- Explain Python concepts in relation to C# where useful
-- Explain every PowerShell command, argument, operator, and symbol
-- The user manually types all code
-- Work incrementally rather than generating the entire bot at once
-- Do not begin order placement until the underlying foundation is complete and tested
-
-## Next section
-
-Day 4: begin the Kalshi API client foundation.
-
-The next work should remain focused on building a typed, testable API boundary. Do not implement order placement or the market-making loop yet.
+```powershell
+uv run ruff format .
+uv run ruff check .
+uv run python -m pytest -v
