@@ -205,7 +205,7 @@ Current application events include:
 - `market_analyzed`
 - `trade_price_classified`
 - `demo_balance_retrieved`
-- `demo_balance_request_failed`
+- `demo_balance_retrieval_failed`
 
 ## Testing
 

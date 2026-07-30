@@ -19,7 +19,7 @@ class Market:
 
         if self.best_bid >= self.best_ask:
             raise ValueError(
-                "best_bid cannot be greater than best_ask"
+                "best_bid cannot be greater than best_ask. "
                 f"Received bid={self.best_bid}, ask={self.best_ask}"
             )
 
@@ -27,13 +27,13 @@ class Market:
     def _validate_price(price: object, field_name: str) -> None:
         if not isinstance(price, Decimal):
             raise TypeError(
-                f"{field_name} must be an Decimal.  "
+                f"{field_name} must be a Decimal.  "
                 f"Received type: {type(price).__name__}"
             )
 
         if not Decimal(0) <= price <= Decimal(1):
             raise ValueError(
-                f"{field_name} must be between 0 and 100.  Received: {price}"
+                f"{field_name} must be between 0 and 1.  Received: {price}"
             )
 
     def calculate_spread(self) -> Decimal:

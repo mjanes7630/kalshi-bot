@@ -33,7 +33,7 @@ def display_trade_prices(prices: list[Decimal], midpoint: Decimal) -> None:
         )
 
 
-async def retrieve_demo_balence(settings: Settings) -> None:
+async def retrieve_demo_balance(settings: Settings) -> None:
     if settings.api_key_id is None:
         raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
 
@@ -54,7 +54,7 @@ async def retrieve_demo_balence(settings: Settings) -> None:
         balance = await client.get_balance()
 
     logger.info(
-        "demo_balence_retrieved",
+        "demo_balance_retrieved",
         balance_dollars=str(balance.balance_dollars),
         portfolio_value_cents=balance.portfolio_value,
         updated_ts=balance.updated_ts,
@@ -111,8 +111,8 @@ def main() -> None:
     display_trade_prices(market.recent_trade_prices, midpoint)
 
     try:
-        asyncio.run(retrieve_demo_balence(settings))
-    except (OSError, ValueError, httpx.HTTPError) as error:
+        asyncio.run(retrieve_demo_balance(settings))
+    except (OSError, ValueError, TypeError, httpx.HTTPError) as error:
         logger.error(
             "demo_balance_retrieval_failed",
             error=str(error),
