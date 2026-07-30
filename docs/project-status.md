@@ -10,12 +10,14 @@
 - Ruff for linting and formatting
 - Pydantic for API-response validation
 - HTTPX for asynchronous HTTP requests
+- Cryptography for RSA request signing
 - GitHub repository configured
 - Cursor launch configuration runs `kalshi_bot.main` as a module
 
 ## Project structure
 
 - `kalshi_bot/api/__init__.py`
+- `kalshi_bot/api/auth.py`
 - `kalshi_bot/api/client.py`
 - `kalshi_bot/api/models.py`
 - `kalshi_bot/config.py`
@@ -24,10 +26,12 @@
 - `kalshi_bot/models/market.py`
 - `tests/test_api_client.py`
 - `tests/test_api_models.py`
+- `tests/test_auth.py`
 - `tests/test_config.py`
 - `tests/test_logging_config.py`
 - `tests/test_market.py`
 - `.vscode/launch.json`
+- `.env.example`
 - `.gitignore`
 - `pyproject.toml`
 - `uv.lock`
@@ -60,10 +64,29 @@ Prices:
 - Best bid cannot exceed best ask
 - Empty trade lists are allowed, but calculating their average raises `ValueError`
 
+### Authentication
+
+`kalshi_bot/api/auth.py` contains the authentication helpers required for
+signed Kalshi requests.
+
+Current behavior:
+
+- Loads a PEM-formatted RSA private key from a configured file path
+- Accepts private-key files regardless of filename extension
+- Verifies that the loaded key is an RSA private key
+- Removes query parameters from the path before signing
+- Converts the HTTP method to uppercase before signing
+- Signs the timestamp, method, and path with RSA-PSS and SHA-256
+- Base64-encodes the generated signature
+- Creates the three required Kalshi authentication headers
+
+Authentication tests use temporary generated keys and do not access the real
+demo credentials.
+
 ### API response models
 
-`kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi’s
-`GET /markets` response.
+`kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi market
+and portfolio responses.
 
 `KalshiMarket` currently includes:
 
@@ -75,33 +98,44 @@ Prices:
 - `no_ask_dollars`
 - `last_price_dollars`
 
-Pydantic converts Kalshi’s fixed-point price strings into `Decimal` values.
-
-Unknown response fields are ignored so Kalshi can return additional fields
-without breaking the initial client.
-
 `GetMarketsResponse` contains:
 
 - A list of `KalshiMarket` objects
 - The pagination cursor
 
+`GetBalanceResponse` currently includes:
+
+- `balance`
+- `balance_dollars`
+- `portfolio_value`
+- `updated_ts`
+
+Pydantic converts Kalshi’s fixed-point dollar strings into `Decimal` values.
+Unknown response fields are ignored so Kalshi can return additional fields
+without breaking the client.
+
 ### API client
 
-`kalshi_bot/api/client.py` contains the initial asynchronous `KalshiClient`.
+`kalshi_bot/api/client.py` contains the asynchronous, read-only
+`KalshiClient`.
 
 Current behavior:
 
 - Accepts an injected `httpx.AsyncClient`
-- Sends a read-only `GET /markets` request
+- Targets Kalshi’s demo REST environment
+- Sends a public `GET /markets` request
 - Supports the `limit` parameter
 - Supports an optional pagination `cursor`
+- Accepts optional API-key and RSA private-key credentials
+- Sends an authenticated `GET /portfolio/balance` request
+- Generates the required millisecond Unix timestamp
+- Raises `ValueError` when a protected request is attempted without credentials
 - Raises `httpx.HTTPStatusError` for unsuccessful responses
-- Validates successful JSON responses through `GetMarketsResponse`
+- Validates successful JSON responses through typed Pydantic models
 - Does not place orders
-- Does not contain authentication or request-signing behavior yet
 
-The injected HTTP client keeps the API boundary testable without contacting
-the live Kalshi service.
+The injected HTTP client keeps the API boundary testable with mocked requests.
+Public market requests do not require credentials.
 
 ### Application
 
@@ -109,11 +143,19 @@ the live Kalshi service.
 
 - Loads typed settings
 - Configures structured logging
-- Creates a sample market
+- Creates a sample market with `Decimal` prices
 - Calculates its spread, midpoint, and average trade price
 - Classifies trades as below, at, or above the midpoint
-- Catches expected `TypeError` and `ValueError` exceptions
+- Loads the configured demo RSA private key
+- Creates an authenticated `KalshiClient`
+- Retrieves the portfolio balance from the Kalshi demo environment
+- Logs successful and failed demo balance requests
+- Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
+
+A live read-only request to the Kalshi demo balance endpoint returned
+`HTTP/1.1 200 OK`, confirming that settings loading, private-key loading,
+request signing, authentication headers, and response parsing work together.
 
 ### Configuration
 
@@ -123,15 +165,28 @@ Current settings include:
 
 - `environment`
 - `log_level`
+- `api_key_id`
+- `private_key_path`
 
 Configuration behavior:
 
 - Uses safe defaults when values are not provided
 - Loads local values from `.env`
 - Supports `KALSHI_BOT_` environment-variable overrides
+- Converts the configured private-key location into a `Path`
 - Allows `development` and `production` environments
 - Rejects invalid environment values
 - `.env` is excluded from Git through `.gitignore`
+- `.env.example` documents credential variable names without containing values
+- The real private-key file is stored outside the repository
+
+The current demo credential variables are:
+
+- `KALSHI_BOT_API_KEY_ID`
+- `KALSHI_BOT_PRIVATE_KEY_PATH`
+
+The configured demo API key is read-only. A separate full-access key will be
+created later when order execution is intentionally implemented.
 
 ### Logging
 
@@ -149,16 +204,19 @@ Current application events include:
 - `application_started`
 - `market_analyzed`
 - `trade_price_classified`
+- `demo_balance_retrieved`
+- `demo_balance_request_failed`
 
 ## Testing
 
-The test suite currently has 21 passing tests:
+The test suite currently has 26 passing tests:
 
 - 11 market-model tests
-- 3 configuration tests
+- 4 configuration tests
 - 3 logging tests
 - 2 API-model tests
-- 2 API-client tests
+- 3 API-client tests
+- 3 authentication tests
 
 Coverage includes:
 
@@ -172,6 +230,8 @@ Coverage includes:
 - Parameterized validation cases
 - Default configuration values
 - `.env` loading
+- Credential environment-variable loading
+- Private-key path conversion
 - Invalid environment rejection
 - Development console logging
 - Production JSON logging
@@ -179,8 +239,15 @@ Coverage includes:
 - Fixed-point API price parsing
 - Nested market-response parsing
 - Pagination cursor parsing
-- HTTP method, path, and query parameters
+- Public market request method, path, and query parameters
 - Unsuccessful HTTP response handling
+- RSA private-key loading from a file
+- RSA-PSS and SHA-256 request signing
+- Query-parameter removal before signing
+- Required Kalshi authentication headers
+- Authenticated balance requests
+- Cryptographic verification of generated request signatures
+- Typed balance-response parsing
 - Mocked API requests without live network access
 
 Run the full test suite with:
@@ -198,7 +265,7 @@ Command explanation:
 
 Expected result:
 
-`21 passed`
+`26 passed`
 
 ## Quality checks
 
@@ -222,7 +289,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `21 passed`
+- pytest reports `26 passed`
 
 ## Completed checkpoints
 
@@ -264,6 +331,25 @@ Expected results:
 - Added mocked API-model and API-client tests
 - Verified all 21 tests
 - Verified Ruff formatting and linting
+- Committed and pushed the completed work to `origin/main`
+
+### Day 5
+
+- Added Cryptography as a direct dependency
+- Added RSA private-key loading
+- Added RSA-PSS and SHA-256 request signing
+- Added the required Kalshi authentication-header builder
+- Added typed API credential settings
+- Added safe credential placeholders to `.env.example`
+- Configured a read-only Kalshi demo API key
+- Added the typed `GetBalanceResponse` model
+- Extended `KalshiClient` with authenticated balance retrieval
+- Kept public market requests independent of credentials
+- Connected `main.py` to the Kalshi demo environment
+- Corrected spelling and validation-message errors
+- Verified a live authenticated read-only request returned `HTTP/1.1 200 OK`
+- Verified all 26 tests
+- Verified Ruff formatting and linting
 
 ## User preferences
 
@@ -277,8 +363,8 @@ Expected results:
 
 ## Next section
 
-Day 5: continue building the Kalshi API foundation.
+Day 6: expand the typed, read-only Kalshi REST API coverage.
 
-The next work should focus on safely expanding the API client and preparing
-for authenticated requests. Do not implement order placement or the
-market-making loop yet.
+The next work should add the REST data needed by the future strategy through
+small, tested client methods. Continue using the demo environment and mocked
+unit tests. Do not implement order placement or the market-making loop yet.

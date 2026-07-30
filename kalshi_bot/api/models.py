@@ -20,3 +20,12 @@ class GetMarketsResponse(BaseModel):
 
     markets: list[KalshiMarket]
     cursor: str
+
+
+class GetBalanceResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    balance: int
+    balance_dollars: Decimal
+    portfolio_value: int
+    updated_ts: int

@@ -11,7 +11,7 @@ def test_settings_use_defaults(
     tmp_path: Path,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("KALSHI_BOT_ENVIROMENT", raising=False)
+    monkeypatch.delenv("KALSHI_BOT_ENVIRONMENT", raising=False)
     monkeypatch.delenv("KALSHI_BOT_LOG_LEVEL", raising=False)
 
     settings = Settings()
@@ -54,3 +54,21 @@ def test_settings_reject_invalid_environment(
 
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_settings_loads_kalshi_credentials_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    private_key_path = tmp_path / "kalshi-private-key.pem"
+
+    monkeypatch.setenv("KALSHI_BOT_API_KEY_ID", "test-key-id")
+    monkeypatch.setenv(
+        "KALSHI_BOT_PRIVATE_KEY_PATH",
+        str(private_key_path),
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.api_key_id == "test-key-id"
+    assert settings.private_key_path == private_key_path
