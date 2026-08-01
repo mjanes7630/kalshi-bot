@@ -33,7 +33,7 @@ def display_trade_prices(prices: list[Decimal], midpoint: Decimal) -> None:
         )
 
 
-async def retrieve_demo_balance(settings: Settings) -> None:
+async def retrieve_demo_api_data(settings: Settings) -> None:
     if settings.api_key_id is None:
         raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
 
@@ -41,6 +41,7 @@ async def retrieve_demo_balance(settings: Settings) -> None:
         raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
 
     private_key = load_private_key(settings.private_key_path)
+
     async with httpx.AsyncClient(
         base_url=KALSHI_API_BASE_URL,
         timeout=10.0,
@@ -51,13 +52,30 @@ async def retrieve_demo_balance(settings: Settings) -> None:
             private_key=private_key,
         )
 
+        markets = await client.get_markets(limit=1)
+
+        if not markets.markets:
+            raise ValueError("No demo markets were returned.")
+
+        ticker = markets.markets[0].ticker
+
+        orderbook = await client.get_market_orderbook(ticker=ticker, depth=5)
+
+        trades = await client.get_trades(ticker=ticker, limit=5)
+
         balance = await client.get_balance()
 
+        positions = await client.get_positions(limit=10)
+
     logger.info(
-        "demo_balance_retrieved",
+        "demo_api_data_retrieved",
+        ticker=ticker,
+        yes_orderbook_levels=len(orderbook.orderbook_fp.yes_dollars),
+        no_orderbook_levels=len(orderbook.orderbook_fp.no_dollars),
+        trade_count=len(trades.trades),
         balance_dollars=str(balance.balance_dollars),
-        portfolio_value_cents=balance.portfolio_value,
-        updated_ts=balance.updated_ts,
+        market_position_count=len(positions.market_positions),
+        event_position_count=len(positions.event_positions),
     )
 
 
@@ -111,10 +129,10 @@ def main() -> None:
     display_trade_prices(market.recent_trade_prices, midpoint)
 
     try:
-        asyncio.run(retrieve_demo_balance(settings))
+        asyncio.run(retrieve_demo_api_data(settings))
     except (OSError, ValueError, TypeError, httpx.HTTPError) as error:
         logger.error(
-            "demo_balance_retrieval_failed",
+            "demo_api_data_retrieval_failed",
             error=str(error),
             error_type=type(error).__name__,
         )

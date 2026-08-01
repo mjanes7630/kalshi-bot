@@ -85,8 +85,8 @@ demo credentials.
 
 ### API response models
 
-`kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi market
-and portfolio responses.
+`kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi market,
+order-book, trade, balance, and position responses.
 
 `KalshiMarket` currently includes:
 
@@ -103,6 +103,26 @@ and portfolio responses.
 - A list of `KalshiMarket` objects
 - The pagination cursor
 
+The order-book response models contain:
+
+- Fixed-point YES price-and-quantity levels
+- Fixed-point NO price-and-quantity levels
+
+`KalshiTrade` currently includes:
+
+- `trade_id`
+- `ticker`
+- `count_fp`
+- `yes_price_dollars`
+- `no_price_dollars`
+- `created_time`
+- `is_block_trade`
+
+`GetTradesResponse` contains:
+
+- A list of `KalshiTrade` objects
+- The pagination cursor
+
 `GetBalanceResponse` currently includes:
 
 - `balance`
@@ -110,9 +130,34 @@ and portfolio responses.
 - `portfolio_value`
 - `updated_ts`
 
-Pydantic converts Kalshi’s fixed-point dollar strings into `Decimal` values.
-Unknown response fields are ignored so Kalshi can return additional fields
-without breaking the client.
+`KalshiMarketPosition` currently includes:
+
+- `ticker`
+- `total_traded_dollars`
+- `position_fp`
+- `market_exposure_dollars`
+- `realized_pnl_dollars`
+- `fees_paid_dollars`
+- `last_updated_ts`
+
+`KalshiEventPosition` currently includes:
+
+- `event_ticker`
+- `total_cost_dollars`
+- `total_cost_shares_fp`
+- `event_exposure_dollars`
+- `realized_pnl_dollars`
+- `fees_paid_dollars`
+
+`GetPositionsResponse` contains:
+
+- A list of `KalshiMarketPosition` objects
+- A list of `KalshiEventPosition` objects
+- The pagination cursor
+
+Pydantic converts Kalshi's fixed-point strings into `Decimal` values and ISO
+8601 timestamps into timezone-aware `datetime` values. Unknown response fields
+are ignored so Kalshi can return additional fields without breaking the client.
 
 ### API client
 
@@ -122,20 +167,30 @@ without breaking the client.
 Current behavior:
 
 - Accepts an injected `httpx.AsyncClient`
-- Targets Kalshi’s demo REST environment
-- Sends a public `GET /markets` request
-- Supports the `limit` parameter
-- Supports an optional pagination `cursor`
+- Targets Kalshi's demo REST environment
 - Accepts optional API-key and RSA private-key credentials
+- Sends a public `GET /markets` request
+- Supports market pagination through `limit` and optional `cursor` parameters
+- Sends an authenticated `GET /markets/{ticker}/orderbook` request
+- Supports order-book depths from `0` through `100`
+- Sends a public `GET /markets/trades` request
+- Supports optional trade `ticker` and `cursor` filters
+- Supports trade limits from `1` through `1000`
 - Sends an authenticated `GET /portfolio/balance` request
+- Sends an authenticated `GET /portfolio/positions` request
+- Supports optional position `ticker`, `event_ticker`, and `cursor` filters
+- Supports position limits from `1` through `1000`
+- Omits unset optional query parameters instead of sending empty values
+- Excludes query parameters from authenticated request signatures
 - Generates the required millisecond Unix timestamp
+- Raises `ValueError` for invalid limits or depths
 - Raises `ValueError` when a protected request is attempted without credentials
 - Raises `httpx.HTTPStatusError` for unsuccessful responses
 - Validates successful JSON responses through typed Pydantic models
 - Does not place orders
 
 The injected HTTP client keeps the API boundary testable with mocked requests.
-Public market requests do not require credentials.
+Public market and trade requests do not require credentials.
 
 ### Application
 
@@ -148,14 +203,20 @@ Public market requests do not require credentials.
 - Classifies trades as below, at, or above the midpoint
 - Loads the configured demo RSA private key
 - Creates an authenticated `KalshiClient`
-- Retrieves the portfolio balance from the Kalshi demo environment
-- Logs successful and failed demo balance requests
+- Retrieves one market from the Kalshi demo environment
+- Retrieves up to five order-book levels for the selected market
+- Retrieves up to five recent trades for the selected market
+- Retrieves the demo portfolio balance
+- Retrieves up to ten portfolio positions
+- Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
 
-A live read-only request to the Kalshi demo balance endpoint returned
-`HTTP/1.1 200 OK`, confirming that settings loading, private-key loading,
-request signing, authentication headers, and response parsing work together.
+A live read-only verification returned `HTTP/1.1 200 OK` for markets, the
+selected market's order book, trades, balance, and positions. This confirmed
+that settings loading, private-key loading, request signing, authentication
+headers, public requests, and typed response parsing work together. The live
+verification did not place any orders.
 
 ### Configuration
 
@@ -204,18 +265,18 @@ Current application events include:
 - `application_started`
 - `market_analyzed`
 - `trade_price_classified`
-- `demo_balance_retrieved`
-- `demo_balance_retrieval_failed`
+- `demo_api_data_retrieved`
+- `demo_api_data_retrieval_failed`
 
 ## Testing
 
-The test suite currently has 26 passing tests:
+The test suite currently has 43 passing tests:
 
 - 11 market-model tests
 - 4 configuration tests
 - 3 logging tests
-- 2 API-model tests
-- 3 API-client tests
+- 5 API-model tests
+- 17 API-client tests
 - 3 authentication tests
 
 Coverage includes:
@@ -236,19 +297,31 @@ Coverage includes:
 - Development console logging
 - Production JSON logging
 - Log-level filtering
-- Fixed-point API price parsing
-- Nested market-response parsing
+- Fixed-point market-price parsing
+- Fixed-point order-book price-and-quantity parsing
+- Fixed-point trade-price and quantity parsing
+- Fixed-point balance and position parsing
+- ISO 8601 timestamp parsing
+- Nested API-response parsing
 - Pagination cursor parsing
 - Public market request method, path, and query parameters
+- Authenticated order-book requests
+- Order-book depth validation
+- Public trade-history requests
+- Trade-limit validation
+- Authenticated balance requests
+- Authenticated position requests
+- Position-limit validation
+- Optional query-parameter omission
+- Credential requirements for protected requests
 - Unsuccessful HTTP response handling
 - RSA private-key loading from a file
 - RSA-PSS and SHA-256 request signing
 - Query-parameter removal before signing
 - Required Kalshi authentication headers
-- Authenticated balance requests
 - Cryptographic verification of generated request signatures
-- Typed balance-response parsing
 - Mocked API requests without live network access
+- Execution of nested asynchronous test helpers through `asyncio.run()`
 
 Run the full test suite with:
 
@@ -265,7 +338,7 @@ Command explanation:
 
 Expected result:
 
-`26 passed`
+`43 passed`
 
 ## Quality checks
 
@@ -279,8 +352,8 @@ uv run python -m pytest -v
 
 Command explanation:
 
-- `ruff format` applies Ruff’s formatting rules.
-- `ruff check` runs Ruff’s lint and code-quality checks.
+- `ruff format` applies Ruff's formatting rules.
+- `ruff check` runs Ruff's lint and code-quality checks.
 - `python -m pytest` runs the test suite through Python.
 - Each `.` represents the current directory and its applicable files.
 - Each line is a separate PowerShell command and runs sequentially.
@@ -289,7 +362,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `26 passed`
+- pytest reports `43 passed`
 
 ## Completed checkpoints
 
@@ -351,6 +424,24 @@ Expected results:
 - Verified all 26 tests
 - Verified Ruff formatting and linting
 
+### Day 6
+
+- Added typed fixed-point order-book response models
+- Added authenticated order-book retrieval with depth validation
+- Added typed trade-history response models
+- Added public trade-history retrieval with pagination and limit validation
+- Added typed market-level and event-level position models
+- Added authenticated position retrieval with filters, pagination, and limit validation
+- Verified that optional query parameters are omitted when unset
+- Verified that authenticated signatures exclude query parameters
+- Corrected asynchronous test-helper indentation so all assertions execute
+- Expanded `main.py` to retrieve markets, an order book, trades, balance, and positions
+- Limited live verification to one market, five trades, and ten positions
+- Verified all five live read-only API requests returned `HTTP/1.1 200 OK`
+- Confirmed that no orders were placed
+- Verified all 43 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -363,8 +454,10 @@ Expected results:
 
 ## Next section
 
-Day 6: expand the typed, read-only Kalshi REST API coverage.
+Day 7: build the internal market-data layer that will supply clean,
+strategy-ready snapshots.
 
-The next work should add the REST data needed by the future strategy through
-small, tested client methods. Continue using the demo environment and mocked
-unit tests. Do not implement order placement or the market-making loop yet.
+The next work should convert typed Kalshi market, order-book, and trade responses
+into an internal representation that future strategy code can consume without
+depending directly on API response models. Continue using the demo environment,
+mocked unit tests, and read-only requests. Do not implement order placement yet.

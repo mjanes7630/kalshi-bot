@@ -52,28 +52,28 @@ def test_calculate_average_trade_price(market: Market) -> None:
             Decimal("1.01"),
             Decimal(1),
             [Decimal("0.50")],
-            "best_bid must be between 0 and 100",
+            "best_bid must be between 0 and 1",
             id="bid-above-maximum",
         ),
         pytest.param(
             Decimal("0.42"),
             Decimal("1.01"),
             [Decimal("0.50")],
-            "best_ask must be between 0 and 100",
+            "best_ask must be between 0 and 1",
             id="ask-above-maximum",
         ),
         pytest.param(
             Decimal("0.42"),
             Decimal("0.44"),
             [Decimal("0.41"), Decimal("1.05")],
-            "trade_prices must be between 0 and 100",
+            "trade_prices must be between 0 and 1",
             id="trade-above-maximum",
         ),
         pytest.param(
             Decimal("0.42"),
             Decimal("0.44"),
             [Decimal("-0.01"), Decimal("0.43")],
-            "trade_prices must be between 0 and 100",
+            "trade_prices must be between 0 and 1",
             id="bid-below-minimum",
         ),
     ],
@@ -114,7 +114,7 @@ def test_rejects_crossed_market() -> None:
 def test_rejects_non_decimal_price() -> None:
     with pytest.raises(
         TypeError,
-        match="best_bid must be an Decimal",
+        match="best_bid must be a Decimal",
     ):
         Market(
             ticker="INVALID",
