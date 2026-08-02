@@ -20,6 +20,9 @@
 - `kalshi_bot/api/auth.py`
 - `kalshi_bot/api/client.py`
 - `kalshi_bot/api/models.py`
+- `kalshi_bot/marketdata/__init__.py`
+- `kalshi_bot/marketdata/builder.py`
+- `kalshi_bot/marketdata/models.py`
 - `kalshi_bot/config.py`
 - `kalshi_bot/logging_config.py`
 - `kalshi_bot/main.py`
@@ -30,6 +33,8 @@
 - `tests/test_config.py`
 - `tests/test_logging_config.py`
 - `tests/test_market.py`
+- `tests/test_marketdata_builder.py`
+- `tests/test_marketdata_models.py`
 - `.vscode/launch.json`
 - `.env.example`
 - `.gitignore`
@@ -192,6 +197,90 @@ Current behavior:
 The injected HTTP client keeps the API boundary testable with mocked requests.
 Public market and trade requests do not require credentials.
 
+### Internal market-data models
+
+`kalshi_bot/marketdata/models.py` contains immutable, strategy-ready domain
+models that are independent of Kalshi's API response format.
+
+`OrderBookLevel` contains:
+
+- `price`
+- `quantity`
+
+`MarketTrade` contains:
+
+- `trade_id`
+- `price`
+- `quantity`
+- `created_time`
+- `is_block_trade`
+
+`MarketSnapshot` contains:
+
+- `ticker`
+- `title`
+- `last_price`
+- Immutable YES bid levels
+- Immutable YES ask levels
+- Immutable recent trades
+- `observed_at`
+
+`MarketSnapshot` provides read-only properties for:
+
+- Best YES bid
+- Best YES ask
+- YES spread
+- YES midpoint
+
+The best bid and ask properties return `None` when their side of the order book
+has no liquidity. Spread and midpoint also return `None` unless both sides are
+available. This lets the bot represent real empty or one-sided books safely.
+
+The models use `@dataclass(frozen=True)` and tuples so a completed snapshot
+cannot be changed accidentally after it is handed to strategy code. This is
+similar in purpose to immutable C# records containing read-only collections.
+
+### Market-snapshot builder
+
+`kalshi_bot/marketdata/builder.py` is the translation boundary between Kalshi's
+Pydantic API models and the bot's internal market-data models.
+
+`build_market_snapshot()` currently:
+
+- Accepts a market, its order book, its recent trades, and an observation time
+- Copies market metadata into an internal `MarketSnapshot`
+- Converts API order-book tuples into typed `OrderBookLevel` objects
+- Sorts YES bids from highest price to lowest price
+- Derives YES asks from NO bids using `Decimal("1") - no_bid_price`
+- Sorts derived YES asks from lowest price to highest price
+- Converts matching API trades into immutable `MarketTrade` objects
+- Excludes trades whose ticker does not match the snapshot market
+- Preserves fixed-point `Decimal` prices and quantities
+- Uses the caller-provided `observed_at` timestamp
+
+Kalshi's order-book response supplies YES and NO bids. A NO bid at `0.5600`
+represents an implied YES ask at `0.4400`, because the two complementary
+contract prices total `1.0000`. The builder performs this exchange-specific
+conversion once so future strategy code can work with a conventional YES
+bid-and-ask view.
+
+The builder also guarantees best-price-first ordering. As a result, strategy
+code can use the first bid and ask levels without knowing how Kalshi ordered the
+original response.
+
+Passing `observed_at` into the builder rather than calling `datetime.now()`
+inside it keeps the conversion deterministic and easy to test. This is similar
+to passing an `IClock` value into a C# domain mapper.
+
+This layer prevents future strategy code from depending directly on Pydantic,
+Kalshi field names, or Kalshi's YES/NO order-book representation. If the API
+payload changes, the API models and builder can be updated while the strategy
+continues consuming the same `MarketSnapshot` interface.
+
+The current data flow is:
+
+`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> future strategy`
+
 ### Application
 
 `main.py`:
@@ -206,17 +295,23 @@ Public market and trade requests do not require credentials.
 - Retrieves one market from the Kalshi demo environment
 - Retrieves up to five order-book levels for the selected market
 - Retrieves up to five recent trades for the selected market
+- Builds an immutable, strategy-ready `MarketSnapshot`
+- Records a timezone-aware UTC observation time
+- Reads best bid, best ask, spread, and midpoint from the snapshot
 - Retrieves the demo portfolio balance
 - Retrieves up to ten portfolio positions
+- Logs snapshot metadata, level counts, recent-trade count, balance, and positions
+- Handles empty order-book sides by logging `None`
 - Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
 
-A live read-only verification returned `HTTP/1.1 200 OK` for markets, the
-selected market's order book, trades, balance, and positions. This confirmed
-that settings loading, private-key loading, request signing, authentication
-headers, public requests, and typed response parsing work together. The live
-verification did not place any orders.
+A live read-only verification successfully retrieved markets, the selected
+market's order book, trades, balance, and positions. The selected market had no
+current order-book levels or recent trades. The resulting snapshot correctly
+reported zero bid levels, zero ask levels, zero recent trades, and `None` for
+best bid, best ask, spread, and midpoint instead of failing. No orders were
+placed.
 
 ### Configuration
 
@@ -270,7 +365,7 @@ Current application events include:
 
 ## Testing
 
-The test suite currently has 43 passing tests:
+The test suite currently has 50 passing tests:
 
 - 11 market-model tests
 - 4 configuration tests
@@ -278,6 +373,8 @@ The test suite currently has 43 passing tests:
 - 5 API-model tests
 - 17 API-client tests
 - 3 authentication tests
+- 4 market-data-model tests
+- 3 market-snapshot-builder tests
 
 Coverage includes:
 
@@ -322,6 +419,15 @@ Coverage includes:
 - Cryptographic verification of generated request signatures
 - Mocked API requests without live network access
 - Execution of nested asynchronous test helpers through `asyncio.run()`
+- Immutable market-data snapshots
+- Best YES bid and ask selection
+- Safe handling of empty order-book sides
+- Snapshot spread and midpoint calculation
+- YES-bid best-price-first ordering
+- Conversion of NO bids into implied YES asks
+- YES-ask best-price-first ordering
+- Market-specific trade filtering and conversion
+- Deterministic observation timestamps
 
 Run the full test suite with:
 
@@ -338,7 +444,7 @@ Command explanation:
 
 Expected result:
 
-`43 passed`
+`50 passed`
 
 ## Quality checks
 
@@ -362,7 +468,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `43 passed`
+- pytest reports `50 passed`
 
 ## Completed checkpoints
 
@@ -442,6 +548,25 @@ Expected results:
 - Verified all 43 tests
 - Verified Ruff formatting and linting
 
+### Day 7
+
+- Added immutable internal order-book, trade, and market-snapshot models
+- Added best YES bid and best YES ask properties
+- Added safe spread and midpoint properties for incomplete order books
+- Added the pure market-snapshot builder
+- Converted Kalshi YES bids into best-price-first internal levels
+- Converted Kalshi NO bids into implied YES asks
+- Normalized YES asks into best-price-first order
+- Filtered recent trades to the snapshot's ticker
+- Added a caller-provided observation timestamp for deterministic conversion
+- Integrated the strategy-ready snapshot into `main.py`
+- Logged snapshot prices, calculated values, level counts, and observation time
+- Verified correct handling of a live market with no current liquidity or trades
+- Confirmed that all API activity remained read-only and no orders were placed
+- Added seven market-data tests
+- Verified all 50 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -454,10 +579,10 @@ Expected results:
 
 ## Next section
 
-Day 7: build the internal market-data layer that will supply clean,
-strategy-ready snapshots.
+Day 8: build the first strategy layer that consumes `MarketSnapshot` without
+depending on Kalshi's API models.
 
-The next work should convert typed Kalshi market, order-book, and trade responses
-into an internal representation that future strategy code can consume without
-depending directly on API response models. Continue using the demo environment,
-mocked unit tests, and read-only requests. Do not implement order placement yet.
+The next work should define strategy outputs and add a deterministic,
+read-only quoting decision based on normalized snapshot data. It should include
+tests for normal, empty, and one-sided order books. Continue using the demo
+environment and do not place orders yet.

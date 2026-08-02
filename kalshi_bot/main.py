@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
@@ -8,6 +9,7 @@ from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.config import Settings
 from kalshi_bot.logging_config import configure_logging
+from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
 
 logger = structlog.get_logger(__name__)
@@ -52,27 +54,51 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             private_key=private_key,
         )
 
-        markets = await client.get_markets(limit=1)
+        markets_response = await client.get_markets(limit=1)
 
-        if not markets.markets:
+        if not markets_response.markets:
             raise ValueError("No demo markets were returned.")
 
-        ticker = markets.markets[0].ticker
+        markets = markets_response.markets[0]
 
-        orderbook = await client.get_market_orderbook(ticker=ticker, depth=5)
+        orderbook_response = await client.get_market_orderbook(
+            ticker=markets.ticker,
+            depth=5,
+        )
 
-        trades = await client.get_trades(ticker=ticker, limit=5)
+        trades_response = await client.get_trades(
+            ticker=markets.ticker,
+            limit=5,
+        )
+
+        snapshot = build_market_snapshot(
+            market=markets,
+            orderbook_response=orderbook_response,
+            trades_response=trades_response,
+            observed_at=datetime.now(UTC),
+        )
 
         balance = await client.get_balance()
-
         positions = await client.get_positions(limit=10)
+
+    best_yes_bid = snapshot.best_yes_bid
+    best_yes_ask = snapshot.best_yes_ask
+    yes_spread = snapshot.yes_spread
+    yes_midpoint = snapshot.yes_midpoint
 
     logger.info(
         "demo_api_data_retrieved",
-        ticker=ticker,
-        yes_orderbook_levels=len(orderbook.orderbook_fp.yes_dollars),
-        no_orderbook_levels=len(orderbook.orderbook_fp.no_dollars),
-        trade_count=len(trades.trades),
+        ticker=snapshot.ticker,
+        title=snapshot.title,
+        low_price=str(snapshot.last_price),
+        best_yes_bid=(str(best_yes_bid.price) if best_yes_bid is not None else None),
+        best_yes_ask=(str(best_yes_ask.price) if best_yes_ask is not None else None),
+        yes_spread=(str(yes_spread) if yes_spread is not None else None),
+        yes_midpoint=(str(yes_midpoint) if yes_midpoint is not None else None),
+        yes_bid_level_count=len(snapshot.yes_bids),
+        yes_ask_level_count=len(snapshot.yes_asks),
+        recent_trade_count=len(snapshot.recent_trades),
+        observed_at=snapshot.observed_at.isoformat(),
         balance_dollars=str(balance.balance_dollars),
         market_position_count=len(positions.market_positions),
         event_position_count=len(positions.event_positions),
