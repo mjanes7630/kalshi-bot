@@ -53,7 +53,7 @@ class KalshiClient:
         limit: int = 100,
         cursor: str | None = None,
     ) -> GetTradesResponse:
-        params: dict[str, str] = {"limit": limit}
+        params: dict[str, str | int] = {"limit": limit}
 
         if ticker is not None:
             params["ticker"] = ticker

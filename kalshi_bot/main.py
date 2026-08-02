@@ -59,20 +59,20 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         if not markets_response.markets:
             raise ValueError("No demo markets were returned.")
 
-        markets = markets_response.markets[0]
+        market = markets_response.markets[0]
 
         orderbook_response = await client.get_market_orderbook(
-            ticker=markets.ticker,
+            ticker=market.ticker,
             depth=5,
         )
 
         trades_response = await client.get_trades(
-            ticker=markets.ticker,
+            ticker=market.ticker,
             limit=5,
         )
 
         snapshot = build_market_snapshot(
-            market=markets,
+            market=market,
             orderbook_response=orderbook_response,
             trades_response=trades_response,
             observed_at=datetime.now(UTC),
@@ -90,7 +90,7 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         "demo_api_data_retrieved",
         ticker=snapshot.ticker,
         title=snapshot.title,
-        low_price=str(snapshot.last_price),
+        last_price=str(snapshot.last_price),
         best_yes_bid=(str(best_yes_bid.price) if best_yes_bid is not None else None),
         best_yes_ask=(str(best_yes_ask.price) if best_yes_ask is not None else None),
         yes_spread=(str(yes_spread) if yes_spread is not None else None),
