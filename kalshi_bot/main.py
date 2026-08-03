@@ -11,6 +11,7 @@ from kalshi_bot.config import Settings
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
+from kalshi_bot.strategy.quotes import decide_quotes
 
 logger = structlog.get_logger(__name__)
 
@@ -78,6 +79,11 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             observed_at=datetime.now(UTC),
         )
 
+        quote_decision = decide_quotes(
+            snapshot,
+            quote_quantity=Decimal("2.00"),
+        )
+
         balance = await client.get_balance()
         positions = await client.get_positions(limit=10)
 
@@ -102,6 +108,28 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         balance_dollars=str(balance.balance_dollars),
         market_position_count=len(positions.market_positions),
         event_position_count=len(positions.event_positions),
+    )
+
+    yes_bid_proposal = quote_decision.yes_bid
+    yes_ask_proposal = quote_decision.yes_ask
+
+    logger.info(
+        "strategy_quotes_decided",
+        ticker=quote_decision.ticker,
+        should_quote=quote_decision.should_quote,
+        reason=quote_decision.reason.value,
+        yes_bid_price=(
+            str(yes_bid_proposal.price) if yes_bid_proposal is not None else None
+        ),
+        yes_bid_quantity=(
+            str(yes_bid_proposal.quantity) if yes_bid_proposal is not None else None
+        ),
+        yes_ask_price=(
+            str(yes_ask_proposal.price) if yes_ask_proposal is not None else None
+        ),
+        yes_ask_quantity=(
+            str(yes_ask_proposal.quantity) if yes_ask_proposal is not None else None
+        ),
     )
 
 

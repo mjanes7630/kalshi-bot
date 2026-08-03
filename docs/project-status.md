@@ -23,6 +23,9 @@
 - `kalshi_bot/marketdata/__init__.py`
 - `kalshi_bot/marketdata/builder.py`
 - `kalshi_bot/marketdata/models.py`
+- `kalshi_bot/strategy/__init__.py`
+- `kalshi_bot/strategy/models.py`
+- `kalshi_bot/strategy/quotes.py`
 - `kalshi_bot/config.py`
 - `kalshi_bot/logging_config.py`
 - `kalshi_bot/main.py`
@@ -35,6 +38,7 @@
 - `tests/test_market.py`
 - `tests/test_marketdata_builder.py`
 - `tests/test_marketdata_models.py`
+- `tests/test_strategy_quotes.py`
 - `.vscode/launch.json`
 - `.env.example`
 - `.gitignore`
@@ -279,7 +283,65 @@ continues consuming the same `MarketSnapshot` interface.
 
 The current data flow is:
 
-`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> future strategy`
+`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> logging`
+
+### Strategy models
+
+`kalshi_bot/strategy/models.py` contains immutable output models for the bot's
+first quoting decision.
+
+`QuoteProposal` contains:
+
+- `price`
+- `quantity`
+
+`QuoteDecision` contains:
+
+- `ticker`
+- An optional YES bid proposal
+- An optional YES ask proposal
+- A controlled decision reason
+- A derived `should_quote` property
+
+`QuoteDecisionReason` currently supports:
+
+- `TWO_SIDED_BOOK`
+- `INCOMPLETE_BOOK`
+
+`QuoteProposal` and `QuoteDecision` use `@dataclass(frozen=True)`, so strategy
+results cannot be changed after they are created. This is similar to using
+immutable C# records for a decision result.
+
+The bid and ask proposals are optional because a snapshot with missing
+liquidity must produce a complete no-quote decision rather than a single-sided
+proposal. `should_quote` is `True` only when both proposals exist.
+
+A `QuoteProposal` is not a Kalshi order. It contains only the proposed price
+and quantity, has no API request fields, and causes no external action.
+
+### Quote strategy
+
+`kalshi_bot/strategy/quotes.py` contains the pure `decide_quotes()` function.
+
+Current behavior:
+
+- Accepts an immutable `MarketSnapshot`
+- Requires `quote_quantity` as an explicit keyword argument
+- Reads the snapshot's best YES bid and best YES ask
+- Proposes joining both best prices with the requested quantity when both sides exist
+- Returns no bid or ask proposal when either order-book side is missing
+- Uses `TWO_SIDED_BOOK` for a complete two-sided proposal
+- Uses `INCOMPLETE_BOOK` when the strategy safely declines to quote
+- Performs no network requests and modifies no state
+- Returns the same result for the same inputs
+
+The keyword-only quantity keeps calls self-documenting:
+
+`decide_quotes(snapshot, quote_quantity=Decimal("2.00"))`
+
+The strategy deliberately refuses to produce only one side of a market-making
+quote. More advanced pricing, inventory, fee, and risk rules have not been
+added yet.
 
 ### Application
 
@@ -296,12 +358,17 @@ The current data flow is:
 - Retrieves up to five order-book levels for the selected market
 - Retrieves up to five recent trades for the selected market
 - Builds an immutable, strategy-ready `MarketSnapshot`
+- Passes the snapshot into the pure quote strategy
+- Uses a fixed demo quote quantity of `Decimal("2.00")`
+- Produces an immutable `QuoteDecision`
 - Records a timezone-aware UTC observation time
 - Reads best bid, best ask, spread, and midpoint from the snapshot
 - Retrieves the demo portfolio balance
 - Retrieves up to ten portfolio positions
 - Logs snapshot metadata, level counts, recent-trade count, balance, and positions
+- Logs the quote decision, reason, and optional proposal values
 - Handles empty order-book sides by logging `None`
+- Safely declines to quote when the order book is incomplete
 - Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
@@ -310,8 +377,9 @@ A live read-only verification successfully retrieved markets, the selected
 market's order book, trades, balance, and positions. The selected market had no
 current order-book levels or recent trades. The resulting snapshot correctly
 reported zero bid levels, zero ask levels, zero recent trades, and `None` for
-best bid, best ask, spread, and midpoint instead of failing. No orders were
-placed.
+best bid, best ask, spread, and midpoint instead of failing. The strategy then
+returned `INCOMPLETE_BOOK`, logged `should_quote=False`, and left all proposal
+fields as `None`. No orders were placed.
 
 ### Configuration
 
@@ -361,11 +429,12 @@ Current application events include:
 - `market_analyzed`
 - `trade_price_classified`
 - `demo_api_data_retrieved`
+- `strategy_quotes_decided`
 - `demo_api_data_retrieval_failed`
 
 ## Testing
 
-The test suite currently has 50 passing tests:
+The test suite currently has 54 passing tests:
 
 - 11 market-model tests
 - 4 configuration tests
@@ -375,6 +444,7 @@ The test suite currently has 50 passing tests:
 - 3 authentication tests
 - 4 market-data-model tests
 - 3 market-snapshot-builder tests
+- 4 quote-strategy tests
 
 Coverage includes:
 
@@ -428,6 +498,13 @@ Coverage includes:
 - YES-ask best-price-first ordering
 - Market-specific trade filtering and conversion
 - Deterministic observation timestamps
+- Two-sided quote proposals at the best YES bid and ask
+- Explicit fixed-point `Decimal` quote quantities
+- Immutable quote-decision output models
+- Derived `should_quote` behavior
+- Safe no-quote decisions when YES bids are missing
+- Safe no-quote decisions when YES asks are missing
+- Safe no-quote decisions when the entire order book is empty
 
 Run the full test suite with:
 
@@ -444,7 +521,7 @@ Command explanation:
 
 Expected result:
 
-`50 passed`
+`54 passed`
 
 ## Quality checks
 
@@ -468,7 +545,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `50 passed`
+- pytest reports `54 passed`
 
 ## Completed checkpoints
 
@@ -567,6 +644,24 @@ Expected results:
 - Verified all 50 tests
 - Verified Ruff formatting and linting
 
+### Day 8
+
+- Added immutable `QuoteProposal` and `QuoteDecision` strategy-output models
+- Added controlled decision reasons for two-sided and incomplete books
+- Added the derived `should_quote` property
+- Added the pure, deterministic `decide_quotes()` function
+- Required quote quantity as an explicit keyword-only argument
+- Proposed YES bid and ask quotes at the snapshot's current best prices
+- Refused to produce a one-sided quote when either order-book side is missing
+- Kept quote proposals independent of Kalshi API order models
+- Integrated the quote decision into `main.py` for logging only
+- Logged decision reasons, proposed prices, proposed quantities, and quote status
+- Verified a live incomplete book produced a safe no-quote decision
+- Confirmed that the strategy performed no external action and placed no orders
+- Added four quote-strategy tests
+- Verified all 54 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -579,10 +674,11 @@ Expected results:
 
 ## Next section
 
-Day 8: build the first strategy layer that consumes `MarketSnapshot` without
-depending on Kalshi's API models.
+Day 9: add the first risk gate around the strategy's quote decision while
+keeping the bot read-only.
 
-The next work should define strategy outputs and add a deterministic,
-read-only quoting decision based on normalized snapshot data. It should include
-tests for normal, empty, and one-sided order books. Continue using the demo
-environment and do not place orders yet.
+The next work should define deterministic risk output models and a pure risk
+check that can approve or reject a `QuoteDecision` before anything reaches a
+future execution layer. Quote-size limits and incomplete decisions should be
+covered by tests, decision reasons should remain observable through structured
+logging, and no orders should be placed yet.
