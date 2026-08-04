@@ -11,6 +11,7 @@ from kalshi_bot.config import Settings
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
+from kalshi_bot.risk.checks import evaluate_quote_risk
 from kalshi_bot.strategy.quotes import decide_quotes
 
 logger = structlog.get_logger(__name__)
@@ -79,9 +80,17 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             observed_at=datetime.now(UTC),
         )
 
+        quote_quantity = Decimal("2.00")
+        max_quote_quantity = Decimal("2.00")
+
         quote_decision = decide_quotes(
             snapshot,
-            quote_quantity=Decimal("2.00"),
+            quote_quantity=quote_quantity,
+        )
+
+        risk_decision = evaluate_quote_risk(
+            quote_decision,
+            max_quote_quantity=max_quote_quantity,
         )
 
         balance = await client.get_balance()
@@ -130,6 +139,14 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         yes_ask_quantity=(
             str(yes_ask_proposal.quantity) if yes_ask_proposal is not None else None
         ),
+    )
+
+    logger.info(
+        "quote_risk_evaluated",
+        ticker=risk_decision.ticker,
+        approved=risk_decision.approved,
+        reason=risk_decision.reason.value,
+        max_quote_quantity=str(max_quote_quantity),
     )
 
 

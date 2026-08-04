@@ -23,6 +23,9 @@
 - `kalshi_bot/marketdata/__init__.py`
 - `kalshi_bot/marketdata/builder.py`
 - `kalshi_bot/marketdata/models.py`
+- `kalshi_bot/risk/__init__.py`
+- `kalshi_bot/risk/checks.py`
+- `kalshi_bot/risk/models.py`
 - `kalshi_bot/strategy/__init__.py`
 - `kalshi_bot/strategy/models.py`
 - `kalshi_bot/strategy/quotes.py`
@@ -38,6 +41,7 @@
 - `tests/test_market.py`
 - `tests/test_marketdata_builder.py`
 - `tests/test_marketdata_models.py`
+- `tests/test_risk_checks.py`
 - `tests/test_strategy_quotes.py`
 - `.vscode/launch.json`
 - `.env.example`
@@ -283,7 +287,7 @@ continues consuming the same `MarketSnapshot` interface.
 
 The current data flow is:
 
-`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> logging`
+`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> evaluate_quote_risk() -> RiskDecision -> logging`
 
 ### Strategy models
 
@@ -340,8 +344,58 @@ The keyword-only quantity keeps calls self-documenting:
 `decide_quotes(snapshot, quote_quantity=Decimal("2.00"))`
 
 The strategy deliberately refuses to produce only one side of a market-making
-quote. More advanced pricing, inventory, fee, and risk rules have not been
-added yet.
+quote. More advanced pricing, inventory, and fee rules have not been added yet.
+
+### Risk models
+
+`kalshi_bot/risk/models.py` contains the immutable result of the bot's first
+risk evaluation.
+
+`RiskDecision` contains:
+
+- `ticker`
+- A controlled risk-decision reason
+- A derived `approved` property
+
+`RiskDecisionReason` currently supports:
+
+- `APPROVED`
+- `INCOMPLETE_QUOTE`
+- `QUOTE_SIZE_EXCEEDS_LIMIT`
+
+`RiskDecision` uses `@dataclass(frozen=True)`, so a completed risk result cannot
+be changed after evaluation. The `approved` property is `True` only when the
+reason is `APPROVED`. This is similar to an immutable C# result record with a
+calculated `Approved` property.
+
+### Quote-risk check
+
+`kalshi_bot/risk/checks.py` contains the pure `evaluate_quote_risk()` function.
+
+Current behavior:
+
+- Accepts an immutable `QuoteDecision`
+- Requires `max_quote_quantity` as an explicit keyword argument
+- Rejects zero and negative maximum quantities with `ValueError`
+- Rejects a decision when either the YES bid or YES ask proposal is missing
+- Rejects a decision when either proposed quantity exceeds the configured limit
+- Treats the maximum quantity as an inclusive limit
+- Approves only a complete two-sided quote within the size limit
+- Returns an immutable and observable `RiskDecision`
+- Performs no network requests and modifies no state
+- Returns the same result for the same inputs
+
+The risk layer repeats the completeness check even though strategy already
+declines incomplete books. This defense-in-depth boundary prevents future
+execution code from trusting an incomplete upstream decision accidentally.
+
+The keyword-only limit keeps calls self-documenting:
+
+`evaluate_quote_risk(quote_decision, max_quote_quantity=Decimal("2.00"))`
+
+This first gate checks proposal completeness and per-side size only. It does
+not yet evaluate inventory, portfolio exposure, available balance, fees, or
+market-specific limits.
 
 ### Application
 
@@ -361,14 +415,19 @@ added yet.
 - Passes the snapshot into the pure quote strategy
 - Uses a fixed demo quote quantity of `Decimal("2.00")`
 - Produces an immutable `QuoteDecision`
+- Passes the quote decision into the pure risk gate
+- Uses a fixed maximum quote quantity of `Decimal("2.00")`
+- Produces an immutable `RiskDecision`
 - Records a timezone-aware UTC observation time
 - Reads best bid, best ask, spread, and midpoint from the snapshot
 - Retrieves the demo portfolio balance
 - Retrieves up to ten portfolio positions
 - Logs snapshot metadata, level counts, recent-trade count, balance, and positions
 - Logs the quote decision, reason, and optional proposal values
+- Logs the risk decision, approval status, reason, and maximum quote quantity
 - Handles empty order-book sides by logging `None`
 - Safely declines to quote when the order book is incomplete
+- Independently rejects incomplete proposals at the risk boundary
 - Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
@@ -379,7 +438,9 @@ current order-book levels or recent trades. The resulting snapshot correctly
 reported zero bid levels, zero ask levels, zero recent trades, and `None` for
 best bid, best ask, spread, and midpoint instead of failing. The strategy then
 returned `INCOMPLETE_BOOK`, logged `should_quote=False`, and left all proposal
-fields as `None`. No orders were placed.
+fields as `None`. The risk gate independently returned `INCOMPLETE_QUOTE`,
+logged `approved=False`, and prevented the decision from proceeding. No orders
+were placed.
 
 ### Configuration
 
@@ -430,11 +491,12 @@ Current application events include:
 - `trade_price_classified`
 - `demo_api_data_retrieved`
 - `strategy_quotes_decided`
+- `quote_risk_evaluated`
 - `demo_api_data_retrieval_failed`
 
 ## Testing
 
-The test suite currently has 54 passing tests:
+The test suite currently has 61 passing tests:
 
 - 11 market-model tests
 - 4 configuration tests
@@ -445,6 +507,7 @@ The test suite currently has 54 passing tests:
 - 4 market-data-model tests
 - 3 market-snapshot-builder tests
 - 4 quote-strategy tests
+- 7 quote-risk tests
 
 Coverage includes:
 
@@ -505,6 +568,13 @@ Coverage includes:
 - Safe no-quote decisions when YES bids are missing
 - Safe no-quote decisions when YES asks are missing
 - Safe no-quote decisions when the entire order book is empty
+- Approval of a complete two-sided quote at the inclusive size limit
+- Rejection when the YES bid exceeds the maximum quote quantity
+- Rejection when the YES ask exceeds the maximum quote quantity
+- Rejection when either quote side is missing
+- Derived `approved` behavior for risk decisions
+- Zero maximum-quantity validation
+- Negative maximum-quantity validation
 
 Run the full test suite with:
 
@@ -521,7 +591,7 @@ Command explanation:
 
 Expected result:
 
-`54 passed`
+`61 passed`
 
 ## Quality checks
 
@@ -545,7 +615,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `54 passed`
+- pytest reports `61 passed`
 
 ## Completed checkpoints
 
@@ -662,6 +732,27 @@ Expected results:
 - Verified all 54 tests
 - Verified Ruff formatting and linting
 
+### Day 9
+
+- Added immutable `RiskDecision` output models
+- Added controlled reasons for approval, incomplete quotes, and oversized quotes
+- Added the derived `approved` property
+- Added the pure, deterministic `evaluate_quote_risk()` function
+- Required the maximum quote quantity as an explicit keyword-only argument
+- Rejected zero and negative maximum quote quantities
+- Rejected decisions missing either the YES bid or YES ask proposal
+- Rejected either quote side when its quantity exceeded the configured maximum
+- Confirmed that the maximum quote quantity is an inclusive limit
+- Added defense-in-depth validation independent of the strategy layer
+- Integrated the risk decision into `main.py` for logging only
+- Kept strategy quote quantity separate from the risk-layer maximum quantity
+- Logged approval status, risk reason, ticker, and maximum quote quantity
+- Verified a live incomplete quote produced `approved=False`
+- Confirmed that the risk gate performed no external action and placed no orders
+- Added seven quote-risk tests
+- Verified all 61 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -674,11 +765,10 @@ Expected results:
 
 ## Next section
 
-Day 9: add the first risk gate around the strategy's quote decision while
-keeping the bot read-only.
+Day 10: add the first dry-run execution-planning boundary while keeping the bot
+read-only.
 
-The next work should define deterministic risk output models and a pure risk
-check that can approve or reject a `QuoteDecision` before anything reaches a
-future execution layer. Quote-size limits and incomplete decisions should be
-covered by tests, decision reasons should remain observable through structured
-logging, and no orders should be placed yet.
+The next work should convert only an approved quote decision into immutable,
+Kalshi-independent order intentions for observation and testing. Rejected risk
+decisions must produce no order intentions. The new layer should remain pure,
+perform no API requests, and submit no orders.
