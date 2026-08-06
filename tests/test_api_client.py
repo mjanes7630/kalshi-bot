@@ -217,7 +217,7 @@ def test_get_market_orderbook_requires_credentials() -> None:
             ):
                 await client.get_market_orderbook("TEST-MARKET")
 
-        asyncio.run(run_test())
+    asyncio.run(run_test())
 
 
 @pytest.mark.parametrize("depth", [-1, 101])
@@ -246,7 +246,7 @@ def test_get_market_orderbook_rejects_invalid_depth(depth: int) -> None:
                     depth=depth,
                 )
 
-        asyncio.run(run_test())
+    asyncio.run(run_test())
 
 
 def test_get_balance_requires_credentials() -> None:
@@ -262,7 +262,7 @@ def test_get_balance_requires_credentials() -> None:
             ):
                 await client.get_balance()
 
-        asyncio.run(run_test())
+    asyncio.run(run_test())
 
 
 def test_get_trades_sends_request_and_parses_response() -> None:
