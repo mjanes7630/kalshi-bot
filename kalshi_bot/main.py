@@ -8,6 +8,7 @@ import structlog
 from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.config import Settings
+from kalshi_bot.execution.planner import create_execution_plan
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
@@ -93,6 +94,11 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             max_quote_quantity=max_quote_quantity,
         )
 
+        execution_plan = create_execution_plan(
+            quote_decision,
+            risk_decision,
+        )
+
         balance = await client.get_balance()
         positions = await client.get_positions(limit=10)
 
@@ -147,6 +153,21 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         approved=risk_decision.approved,
         reason=risk_decision.reason.value,
         max_quote_quantity=str(max_quote_quantity),
+    )
+
+    logger.info(
+        "dry_run_execution_planned",
+        ticker=execution_plan.ticker,
+        has_order_intents=execution_plan.has_order_intents,
+        order_intent_count=len(execution_plan.order_intents),
+        order_intents=[
+            {
+                "side": order_intent.side.value,
+                "price": str(order_intent.price),
+                "quantity": str(order_intent.quantity),
+            }
+            for order_intent in execution_plan.order_intents
+        ],
     )
 
 

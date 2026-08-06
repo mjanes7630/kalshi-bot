@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 from decimal import Decimal
 
 import httpx
@@ -8,6 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
+from kalshi_bot.api.models import CreateOrderRequest, KalshiOrderSide
 
 
 def test_get_markets_sends_request_and_parses_response() -> None:
@@ -524,5 +526,154 @@ def test_get_positions_rejects_invalid_limit(limit: int) -> None:
                 match="Position limit must be between 1 and 1000.",
             ):
                 await client.get_positions(limit=limit)
+
+    asyncio.run(run_test())
+
+
+def test_create_order_sends_authenticated_request_and_parses_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    order_request = CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4200"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == ("/trade-api/v2/portfolio/events/orders")
+        assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
+        assert request.headers["Content-Type"] == "application/json"
+
+        assert json.loads(request.content) == {
+            "ticker": "TEST-MARKET",
+            "client_order_id": "client-order-123",
+            "side": "bid",
+            "count": "2.00",
+            "price": "0.4200",
+            "time_in_force": "good_till_canceled",
+            "self_trade_prevention_type": "taker_at_cross",
+            "post_only": True,
+            "cancel_order_on_pause": True,
+        }
+
+        timestamp = request.headers["KALSHI-ACCESS-TIMESTAMP"]
+        expected_message = (
+            f"{timestamp}POST/trade-api/v2/portfolio/events/orders"
+        ).encode()
+
+        private_key.public_key().verify(
+            base64.b64decode(request.headers["KALSHI-ACCESS-SIGNATURE"]),
+            expected_message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.DIGEST_LENGTH,
+            ),
+            hashes.SHA256(),
+        )
+
+        return httpx.Response(
+            201,
+            json={
+                "order_id": "order-123",
+                "client_order_id": "client-order-123",
+                "fill_count": "0.00",
+                "remaining_count": "2.00",
+                "ts_ms": 1785970800000,
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.create_order(order_request)
+
+        assert result.order_id == "order-123"
+        assert result.client_order_id == "client-order-123"
+        assert result.fill_count == Decimal("0.00")
+        assert result.remaining_count == Decimal("2.00")
+        assert result.ts_ms == 1785970800000
+
+    asyncio.run(run_test())
+
+
+def test_create_order_requires_credentials() -> None:
+    order_request = CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4200"),
+    )
+
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(
+                ValueError,
+                match="API credentials are required to create an order.",
+            ):
+                await client.create_order(order_request)
+
+    asyncio.run(run_test())
+
+
+def test_create_order_raises_for_unsuccessful_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    order_request = CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4200"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "code": "order_rejected",
+                "message": "Order rejected",
+                "details": "Test rejection",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                await client.create_order(order_request)
+
+        assert error.value.response.status_code == 409
 
     asyncio.run(run_test())

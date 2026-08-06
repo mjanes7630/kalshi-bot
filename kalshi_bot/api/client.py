@@ -5,6 +5,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from kalshi_bot.api.auth import create_auth_headers
 from kalshi_bot.api.models import (
+    CreateOrderRequest,
+    CreateOrderResponse,
     GetBalanceResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
@@ -173,3 +175,30 @@ class KalshiClient:
         response.raise_for_status()
 
         return GetPositionsResponse.model_validate(response.json())
+
+    async def create_order(
+        self,
+        order_request: CreateOrderRequest,
+    ) -> CreateOrderResponse:
+        if self._api_key_id is None or self._private_key is None:
+            raise ValueError("API credentials are required to create an order.")
+
+        path = "/trade-api/v2/portfolio/events/orders"
+        timestamp = str(time.time_ns() // 1_000_000)
+
+        headers = create_auth_headers(
+            api_key_id=self._api_key_id,
+            private_key=self._private_key,
+            timestamp=timestamp,
+            method="POST",
+            path=path,
+        )
+
+        response = await self._http_client.post(
+            "portfolio/events/orders",
+            json=order_request.model_dump(mode="json"),
+            headers=headers,
+        )
+        response.raise_for_status()
+
+        return CreateOrderResponse.model_validate(response.json())

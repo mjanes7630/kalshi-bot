@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
@@ -96,3 +97,43 @@ class GetBalanceResponse(BaseModel):
     balance_dollars: Decimal
     portfolio_value: int
     updated_ts: int
+
+
+class KalshiOrderSide(StrEnum):
+    BID = "bid"
+    ASK = "ask"
+
+
+class KalshiTimeInForce(StrEnum):
+    FILL_OR_KILL = "fill_or_kill"
+    GOOD_TILL_CANCELED = "good_till_canceled"
+    IMMEDIATE_OR_CANCEL = "immediate_or_cancel"
+
+
+class KalshiSelfTradePreventionType(StrEnum):
+    TAKER_AT_CROSS = "taker_at_cross"
+    MAKER = "maker"
+
+
+class CreateOrderRequest(BaseModel):
+    ticker: str
+    client_order_id: str
+    side: KalshiOrderSide
+    count: Decimal
+    price: Decimal
+    time_in_force: KalshiTimeInForce = KalshiTimeInForce.GOOD_TILL_CANCELED
+    self_trade_prevention_type: KalshiSelfTradePreventionType = (
+        KalshiSelfTradePreventionType.TAKER_AT_CROSS
+    )
+    post_only: bool = True
+    cancel_order_on_pause: bool = True
+
+
+class CreateOrderResponse(BaseModel):
+    order_id: str
+    client_order_id: str
+    fill_count: Decimal
+    remaining_count: Decimal
+    ts_ms: int
+    average_fill_price: Decimal | None = None
+    average_fee_paid: Decimal | None = None

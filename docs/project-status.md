@@ -20,6 +20,9 @@
 - `kalshi_bot/api/auth.py`
 - `kalshi_bot/api/client.py`
 - `kalshi_bot/api/models.py`
+- `kalshi_bot/execution/__init__.py`
+- `kalshi_bot/execution/models.py`
+- `kalshi_bot/execution/planner.py`
 - `kalshi_bot/marketdata/__init__.py`
 - `kalshi_bot/marketdata/builder.py`
 - `kalshi_bot/marketdata/models.py`
@@ -37,6 +40,7 @@
 - `tests/test_api_models.py`
 - `tests/test_auth.py`
 - `tests/test_config.py`
+- `tests/test_execution_planner.py`
 - `tests/test_logging_config.py`
 - `tests/test_market.py`
 - `tests/test_marketdata_builder.py`
@@ -99,7 +103,7 @@ demo credentials.
 ### API response models
 
 `kalshi_bot/api/models.py` contains typed Pydantic models for Kalshi market,
-order-book, trade, balance, and position responses.
+order-book, trade, balance, position, and V2 order requests and responses.
 
 `KalshiMarket` currently includes:
 
@@ -168,14 +172,42 @@ The order-book response models contain:
 - A list of `KalshiEventPosition` objects
 - The pagination cursor
 
+The V2 order models include:
+
+- `KalshiOrderSide` with `BID` and `ASK` values
+- `KalshiTimeInForce`
+- `KalshiSelfTradePreventionType`
+- `CreateOrderRequest`
+- `CreateOrderResponse`
+
+`CreateOrderRequest` requires:
+
+- `ticker`
+- A client-generated `client_order_id`
+- A Kalshi `bid` or `ask` side
+- Fixed-point `count`
+- Fixed-point `price`
+
+Its fail-safe defaults are:
+
+- `good_till_canceled` time in force
+- `taker_at_cross` self-trade prevention
+- `post_only=True`
+- `cancel_order_on_pause=True`
+
+`CreateOrderResponse` parses the order ID, optional client order ID, filled and
+remaining quantities, timestamp, and optional average fill price and fee.
+
 Pydantic converts Kalshi's fixed-point strings into `Decimal` values and ISO
 8601 timestamps into timezone-aware `datetime` values. Unknown response fields
 are ignored so Kalshi can return additional fields without breaking the client.
 
 ### API client
 
-`kalshi_bot/api/client.py` contains the asynchronous, read-only
-`KalshiClient`.
+`kalshi_bot/api/client.py` contains the asynchronous `KalshiClient`. Its public
+and authenticated read methods remain in use by the application. It now also
+contains a write-capable V2 `create_order()` boundary that is tested with
+mocked HTTP only and is not called by `main.py`.
 
 Current behavior:
 
@@ -193,6 +225,11 @@ Current behavior:
 - Sends an authenticated `GET /portfolio/positions` request
 - Supports optional position `ticker`, `event_ticker`, and `cursor` filters
 - Supports position limits from `1` through `1000`
+- Sends an authenticated `POST /portfolio/events/orders` request when
+  `create_order()` is called explicitly
+- Serializes typed V2 order requests into Kalshi's fixed-point JSON format
+- Signs the exact V2 order path with the `POST` method
+- Parses successful `201` responses into `CreateOrderResponse`
 - Omits unset optional query parameters instead of sending empty values
 - Excludes query parameters from authenticated request signatures
 - Generates the required millisecond Unix timestamp
@@ -200,10 +237,11 @@ Current behavior:
 - Raises `ValueError` when a protected request is attempted without credentials
 - Raises `httpx.HTTPStatusError` for unsuccessful responses
 - Validates successful JSON responses through typed Pydantic models
-- Does not place orders
+- Has no automatic or application-level order-submission call path
 
 The injected HTTP client keeps the API boundary testable with mocked requests.
-Public market and trade requests do not require credentials.
+Public market and trade requests do not require credentials. All
+`create_order()` tests use `httpx.MockTransport`, so they cannot reach Kalshi.
 
 ### Internal market-data models
 
@@ -285,9 +323,9 @@ Kalshi field names, or Kalshi's YES/NO order-book representation. If the API
 payload changes, the API models and builder can be updated while the strategy
 continues consuming the same `MarketSnapshot` interface.
 
-The current data flow is:
+The current application data flow is:
 
-`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> evaluate_quote_risk() -> RiskDecision -> logging`
+`Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> evaluate_quote_risk() -> RiskDecision -> create_execution_plan() -> ExecutionPlan -> logging`
 
 ### Strategy models
 
@@ -397,6 +435,54 @@ This first gate checks proposal completeness and per-side size only. It does
 not yet evaluate inventory, portfolio exposure, available balance, fees, or
 market-specific limits.
 
+### Execution models
+
+`kalshi_bot/execution/models.py` contains immutable, Kalshi-independent models
+for the bot's dry-run execution plan.
+
+`OrderSide` supports:
+
+- `BUY`
+- `SELL`
+
+`OrderIntent` contains:
+
+- `ticker`
+- `side`
+- `price`
+- `quantity`
+
+`ExecutionPlan` contains:
+
+- `ticker`
+- An immutable tuple of zero or more order intents
+- A derived `has_order_intents` property
+
+These models describe what the bot would try to submit without depending on
+Kalshi's API vocabulary or causing an external action. They use
+`@dataclass(frozen=True)` and tuples, which is similar to immutable C# records
+with read-only collections.
+
+### Dry-run execution planner
+
+`kalshi_bot/execution/planner.py` contains the pure
+`create_execution_plan()` function.
+
+Current behavior:
+
+- Requires the quote and risk decisions to have matching tickers
+- Returns an empty plan whenever the risk decision is not approved
+- Defensively rejects an impossible approved decision missing either proposal
+- Converts an approved YES bid proposal into a `BUY` intent
+- Converts an approved YES ask proposal into a `SELL` intent
+- Preserves the strategy's fixed-point prices and quantities
+- Performs no network requests and submits no orders
+- Returns the same result for the same inputs
+
+The execution planner remains separate from the V2 API request models. A
+future orchestration layer must deliberately map `BUY` to Kalshi `bid` and
+`SELL` to Kalshi `ask` before calling the client.
+
 ### Application
 
 `main.py`:
@@ -418,6 +504,8 @@ market-specific limits.
 - Passes the quote decision into the pure risk gate
 - Uses a fixed maximum quote quantity of `Decimal("2.00")`
 - Produces an immutable `RiskDecision`
+- Passes the quote and risk decisions into the pure dry-run execution planner
+- Produces an immutable `ExecutionPlan`
 - Records a timezone-aware UTC observation time
 - Reads best bid, best ask, spread, and midpoint from the snapshot
 - Retrieves the demo portfolio balance
@@ -425,9 +513,13 @@ market-specific limits.
 - Logs snapshot metadata, level counts, recent-trade count, balance, and positions
 - Logs the quote decision, reason, and optional proposal values
 - Logs the risk decision, approval status, reason, and maximum quote quantity
+- Logs whether the dry-run plan has intents, the intent count, and each
+  proposed side, price, and quantity
 - Handles empty order-book sides by logging `None`
 - Safely declines to quote when the order book is incomplete
 - Independently rejects incomplete proposals at the risk boundary
+- Produces an empty execution plan whenever risk rejects a quote
+- Does not call `KalshiClient.create_order()`
 - Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
@@ -439,8 +531,9 @@ reported zero bid levels, zero ask levels, zero recent trades, and `None` for
 best bid, best ask, spread, and midpoint instead of failing. The strategy then
 returned `INCOMPLETE_BOOK`, logged `should_quote=False`, and left all proposal
 fields as `None`. The risk gate independently returned `INCOMPLETE_QUOTE`,
-logged `approved=False`, and prevented the decision from proceeding. No orders
-were placed.
+logged `approved=False`, and prevented the decision from proceeding. The
+execution planner then logged `has_order_intents=False`,
+`order_intent_count=0`, and an empty intent list. No orders were placed.
 
 ### Configuration
 
@@ -452,6 +545,7 @@ Current settings include:
 - `log_level`
 - `api_key_id`
 - `private_key_path`
+- `order_submission_enabled`
 
 Configuration behavior:
 
@@ -463,6 +557,9 @@ Configuration behavior:
 - Rejects invalid environment values
 - `.env` is excluded from Git through `.gitignore`
 - `.env.example` documents credential variable names without containing values
+- Order submission defaults to `False`
+- `KALSHI_BOT_ORDER_SUBMISSION_ENABLED=true` is required to enable the flag
+- `.env.example` documents the flag as `false`
 - The real private-key file is stored outside the repository
 
 The current demo credential variables are:
@@ -471,7 +568,8 @@ The current demo credential variables are:
 - `KALSHI_BOT_PRIVATE_KEY_PATH`
 
 The configured demo API key is read-only. A separate full-access key will be
-created later when order execution is intentionally implemented.
+created later when order execution is intentionally enabled. The flag is not
+currently consumed by `main.py`, so changing it alone cannot submit an order.
 
 ### Logging
 
@@ -492,22 +590,24 @@ Current application events include:
 - `demo_api_data_retrieved`
 - `strategy_quotes_decided`
 - `quote_risk_evaluated`
+- `dry_run_execution_planned`
 - `demo_api_data_retrieval_failed`
 
 ## Testing
 
-The test suite currently has 61 passing tests:
+The test suite currently has 73 passing tests:
 
 - 11 market-model tests
-- 4 configuration tests
+- 6 configuration tests
 - 3 logging tests
-- 5 API-model tests
-- 17 API-client tests
+- 7 API-model tests
+- 20 API-client tests
 - 3 authentication tests
 - 4 market-data-model tests
 - 3 market-snapshot-builder tests
 - 4 quote-strategy tests
 - 7 quote-risk tests
+- 5 execution-planner tests
 
 Coverage includes:
 
@@ -524,6 +624,8 @@ Coverage includes:
 - Credential environment-variable loading
 - Private-key path conversion
 - Invalid environment rejection
+- Fail-closed order-submission configuration default
+- Explicit environment-variable enabling of the submission flag
 - Development console logging
 - Production JSON logging
 - Log-level filtering
@@ -531,6 +633,8 @@ Coverage includes:
 - Fixed-point order-book price-and-quantity parsing
 - Fixed-point trade-price and quantity parsing
 - Fixed-point balance and position parsing
+- Safe V2 create-order request defaults and JSON serialization
+- Fixed-point V2 create-order response parsing
 - ISO 8601 timestamp parsing
 - Nested API-response parsing
 - Pagination cursor parsing
@@ -541,6 +645,10 @@ Coverage includes:
 - Trade-limit validation
 - Authenticated balance requests
 - Authenticated position requests
+- Authenticated V2 create-order requests
+- Verification that V2 order signatures use `POST` and the exact signed path
+- Required credentials for order creation
+- Unsuccessful order-response handling
 - Position-limit validation
 - Optional query-parameter omission
 - Credential requirements for protected requests
@@ -575,6 +683,11 @@ Coverage includes:
 - Derived `approved` behavior for risk decisions
 - Zero maximum-quantity validation
 - Negative maximum-quantity validation
+- Creation of two dry-run intents for an approved two-sided quote
+- Empty execution plans for rejected risk decisions
+- Quote-and-risk ticker consistency validation
+- Defensive rejection of approved but incomplete quotes
+- Immutable execution plans and order-intent tuples
 
 Run the full test suite with:
 
@@ -591,7 +704,7 @@ Command explanation:
 
 Expected result:
 
-`61 passed`
+`73 passed`
 
 ## Quality checks
 
@@ -615,7 +728,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `61 passed`
+- pytest reports `73 passed`
 
 ## Completed checkpoints
 
@@ -753,6 +866,52 @@ Expected results:
 - Verified all 61 tests
 - Verified Ruff formatting and linting
 
+### Day 10
+
+- Added immutable `OrderIntent` and `ExecutionPlan` dry-run models
+- Added controlled internal `BUY` and `SELL` order sides
+- Added the derived `has_order_intents` property
+- Added the pure, deterministic `create_execution_plan()` function
+- Required quote and risk decisions to have matching tickers
+- Returned an empty plan whenever risk rejected a quote
+- Defensively rejected an approved decision missing either quote proposal
+- Converted approved YES bids into `BUY` intents
+- Converted approved YES asks into `SELL` intents
+- Kept execution intents independent of Kalshi API request models
+- Integrated execution planning into `main.py` for logging only
+- Added the `dry_run_execution_planned` structured-log event
+- Verified a live incomplete book produced zero order intents
+- Confirmed that the planner performed no API requests and placed no orders
+- Added five execution-planner tests
+- Verified all 66 tests
+- Verified Ruff formatting and linting
+
+### Day 11
+
+- Added string-backed enums for Kalshi V2 order side, time in force, and
+  self-trade prevention
+- Added the typed `CreateOrderRequest` model
+- Required a client-generated order ID at the bot's API boundary
+- Added fail-safe request defaults for post-only behavior, pause cancellation,
+  self-trade prevention, and good-till-canceled orders
+- Added the typed `CreateOrderResponse` model
+- Added authenticated `KalshiClient.create_order()` support for
+  `POST /portfolio/events/orders`
+- Signed the exact V2 order path with the `POST` method
+- Serialized fixed-point `Decimal` values into Kalshi-compatible JSON strings
+- Parsed successful `201` responses into the typed response model
+- Preserved HTTP-status error propagation for rejected requests
+- Required credentials before an order request can be attempted
+- Tested every order request through `httpx.MockTransport` only
+- Added the fail-closed `order_submission_enabled` setting with a default of
+  `False`
+- Added `KALSHI_BOT_ORDER_SUBMISSION_ENABLED=false` to `.env.example`
+- Kept `main.py` disconnected from `create_order()`
+- Confirmed that the current read-only demo key remains unchanged
+- Added seven tests across configuration, API models, and the API client
+- Verified all 73 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -765,10 +924,12 @@ Expected results:
 
 ## Next section
 
-Day 10: add the first dry-run execution-planning boundary while keeping the bot
-read-only.
+Day 12: add a controlled order-submission orchestration boundary without
+enabling live execution.
 
-The next work should convert only an approved quote decision into immutable,
-Kalshi-independent order intentions for observation and testing. Rejected risk
-decisions must produce no order intentions. The new layer should remain pure,
-perform no API requests, and submit no orders.
+The next work should deliberately map internal `OrderIntent` objects into
+Kalshi V2 `CreateOrderRequest` objects, generate unique client order IDs, and
+respect the fail-closed `order_submission_enabled` setting. Submission-disabled
+plans must produce no API calls. All submission behavior should remain covered
+by mocks, and `main.py` should remain non-live until a separate, explicit safety
+checkpoint authorizes demo order placement with appropriate credentials.

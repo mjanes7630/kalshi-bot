@@ -72,3 +72,29 @@ def test_settings_loads_kalshi_credentials_from_environment(
 
     assert settings.api_key_id == "test-key-id"
     assert settings.private_key_path == private_key_path
+
+
+def test_order_submission_is_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(
+        "KALSHI_BOT_ORDER_SUBMISSION_ENABLED",
+        raising=False,
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.order_submission_enabled is False
+
+
+def test_order_submission_can_be_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KALSHI_BOT_ORDER_SUBMISSION_ENABLED",
+        "true",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.order_submission_enabled is True

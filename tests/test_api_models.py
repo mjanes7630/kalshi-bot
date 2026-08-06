@@ -1,11 +1,16 @@
 from decimal import Decimal
 
 from kalshi_bot.api.models import (
+    CreateOrderRequest,
+    CreateOrderResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
     GetPositionsResponse,
     GetTradesResponse,
     KalshiMarket,
+    KalshiOrderSide,
+    KalshiSelfTradePreventionType,
+    KalshiTimeInForce,
 )
 
 
@@ -153,3 +158,56 @@ def test_get_positions_response_parses_fixed_point_values() -> None:
     assert event_position.realized_pnl_dollars == Decimal("-0.3000")
     assert event_position.fees_paid_dollars == Decimal("0.1500")
     assert response.cursor == "next-page"
+
+
+def test_create_order_request_uses_safe_defaults() -> None:
+    request = CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4200"),
+    )
+
+    assert request.time_in_force is KalshiTimeInForce.GOOD_TILL_CANCELED
+    assert (
+        request.self_trade_prevention_type
+        is KalshiSelfTradePreventionType.TAKER_AT_CROSS
+    )
+    assert request.post_only is True
+    assert request.cancel_order_on_pause is True
+
+    assert request.model_dump(mode="json") == {
+        "ticker": "TEST-MARKET",
+        "client_order_id": "client-order-123",
+        "side": "bid",
+        "count": "2.00",
+        "price": "0.4200",
+        "time_in_force": "good_till_canceled",
+        "self_trade_prevention_type": "taker_at_cross",
+        "post_only": True,
+        "cancel_order_on_pause": True,
+    }
+
+
+def test_create_order_response_parses_fixed_point_values() -> None:
+    response = CreateOrderResponse.model_validate(
+        {
+            "order_id": "order-123",
+            "client_order_id": "client-order-123",
+            "fill_count": "0.50",
+            "remaining_count": "1.50",
+            "ts_ms": 1785970800000,
+            "average_fill_price": "0.4200",
+            "average_fee_paid": "0.0012",
+            "future_field": "ignored",
+        }
+    )
+
+    assert response.order_id == "order-123"
+    assert response.client_order_id == "client-order-123"
+    assert response.fill_count == Decimal("0.50")
+    assert response.remaining_count == Decimal("1.50")
+    assert response.ts_ms == 1785970800000
+    assert response.average_fill_price == Decimal("0.4200")
+    assert response.average_fee_paid == Decimal("0.0012")

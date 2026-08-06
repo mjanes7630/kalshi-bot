@@ -23,3 +23,4 @@ class Settings(BaseSettings):
 
     api_key_id: str | None = None
     private_key_path: Path | None = None
+    order_submission_enabled: bool = False
