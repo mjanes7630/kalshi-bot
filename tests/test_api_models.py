@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from kalshi_bot.api.models import (
+    CancelOrderResponse,
     CreateOrderRequest,
     CreateOrderResponse,
     GetMarketOrderbookResponse,
@@ -211,3 +212,20 @@ def test_create_order_response_parses_fixed_point_values() -> None:
     assert response.ts_ms == 1785970800000
     assert response.average_fill_price == Decimal("0.4200")
     assert response.average_fee_paid == Decimal("0.0012")
+
+
+def test_cancel_order_response_parses_fixed_point_values() -> None:
+    response = CancelOrderResponse.model_validate(
+        {
+            "order_id": "order-123",
+            "client_order_id": "client-order-123",
+            "reduced_by": "1.50",
+            "ts_ms": 1785970800000,
+            "future_field": "ignored",
+        }
+    )
+
+    assert response.order_id == "order-123"
+    assert response.client_order_id == "client-order-123"
+    assert response.reduced_by == Decimal("1.50")
+    assert response.ts_ms == 1785970800000

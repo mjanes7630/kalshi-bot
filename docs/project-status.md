@@ -23,6 +23,7 @@
 - `kalshi_bot/execution/__init__.py`
 - `kalshi_bot/execution/models.py`
 - `kalshi_bot/execution/planner.py`
+- `kalshi_bot/execution/submission.py`
 - `kalshi_bot/marketdata/__init__.py`
 - `kalshi_bot/marketdata/builder.py`
 - `kalshi_bot/marketdata/models.py`
@@ -41,6 +42,7 @@
 - `tests/test_auth.py`
 - `tests/test_config.py`
 - `tests/test_execution_planner.py`
+- `tests/test_execution_submission.py`
 - `tests/test_logging_config.py`
 - `tests/test_market.py`
 - `tests/test_marketdata_builder.py`
@@ -179,6 +181,7 @@ The V2 order models include:
 - `KalshiSelfTradePreventionType`
 - `CreateOrderRequest`
 - `CreateOrderResponse`
+- `CancelOrderResponse`
 
 `CreateOrderRequest` requires:
 
@@ -198,6 +201,10 @@ Its fail-safe defaults are:
 `CreateOrderResponse` parses the order ID, optional client order ID, filled and
 remaining quantities, timestamp, and optional average fill price and fee.
 
+`CancelOrderResponse` parses the canceled order ID, client order ID, reduced
+quantity, and millisecond timestamp. The reduced quantity is stored as a
+fixed-point `Decimal`.
+
 Pydantic converts Kalshi's fixed-point strings into `Decimal` values and ISO
 8601 timestamps into timezone-aware `datetime` values. Unknown response fields
 are ignored so Kalshi can return additional fields without breaking the client.
@@ -206,8 +213,8 @@ are ignored so Kalshi can return additional fields without breaking the client.
 
 `kalshi_bot/api/client.py` contains the asynchronous `KalshiClient`. Its public
 and authenticated read methods remain in use by the application. It now also
-contains a write-capable V2 `create_order()` boundary that is tested with
-mocked HTTP only and is not called by `main.py`.
+contains write-capable V2 `create_order()` and `cancel_order()` boundaries that
+are tested with mocked HTTP only and are not called by `main.py`.
 
 Current behavior:
 
@@ -230,6 +237,10 @@ Current behavior:
 - Serializes typed V2 order requests into Kalshi's fixed-point JSON format
 - Signs the exact V2 order path with the `POST` method
 - Parses successful `201` responses into `CreateOrderResponse`
+- Sends an authenticated `DELETE /portfolio/events/orders/{order_id}` request
+  when `cancel_order()` is called explicitly
+- Signs the exact V2 cancellation path with the `DELETE` method
+- Parses successful cancellation responses into `CancelOrderResponse`
 - Omits unset optional query parameters instead of sending empty values
 - Excludes query parameters from authenticated request signatures
 - Generates the required millisecond Unix timestamp
@@ -237,11 +248,12 @@ Current behavior:
 - Raises `ValueError` when a protected request is attempted without credentials
 - Raises `httpx.HTTPStatusError` for unsuccessful responses
 - Validates successful JSON responses through typed Pydantic models
-- Has no automatic or application-level order-submission call path
+- Has no application-level order-submission or cancellation call path
 
 The injected HTTP client keeps the API boundary testable with mocked requests.
 Public market and trade requests do not require credentials. All
-`create_order()` tests use `httpx.MockTransport`, so they cannot reach Kalshi.
+`create_order()` and `cancel_order()` client tests use `httpx.MockTransport`,
+so they cannot reach Kalshi.
 
 ### Internal market-data models
 
@@ -323,9 +335,13 @@ Kalshi field names, or Kalshi's YES/NO order-book representation. If the API
 payload changes, the API models and builder can be updated while the strategy
 continues consuming the same `MarketSnapshot` interface.
 
-The current application data flow is:
+The current `main.py` application data flow is:
 
 `Kalshi JSON -> Pydantic API models -> build_market_snapshot() -> MarketSnapshot -> decide_quotes() -> QuoteDecision -> evaluate_quote_risk() -> RiskDecision -> create_execution_plan() -> ExecutionPlan -> logging`
+
+The tested but disconnected submission path is:
+
+`ExecutionPlan -> submit_execution_plan() -> CreateOrderRequest -> KalshiClient.create_order()`
 
 ### Strategy models
 
@@ -479,9 +495,40 @@ Current behavior:
 - Performs no network requests and submits no orders
 - Returns the same result for the same inputs
 
-The execution planner remains separate from the V2 API request models. A
-future orchestration layer must deliberately map `BUY` to Kalshi `bid` and
-`SELL` to Kalshi `ask` before calling the client.
+The execution planner remains separate from the V2 API request models. The
+submission boundary deliberately performs the exchange-specific mapping rather
+than leaking Kalshi vocabulary into the internal execution models.
+
+### Controlled order submission
+
+`kalshi_bot/execution/submission.py` contains the mapping and orchestration
+boundary between an internal `ExecutionPlan` and the authenticated API client.
+
+`build_create_order_request()` currently:
+
+- Converts an internal `BUY` intent into a Kalshi `bid`
+- Converts an internal `SELL` intent into a Kalshi `ask`
+- Preserves the intent's ticker, fixed-point price, and fixed-point quantity
+- Requires the caller to provide a client order ID
+- Builds data only and performs no network request
+
+`submit_execution_plan()` currently:
+
+- Returns an empty response tuple without making API calls when
+  `order_submission_enabled` is `False`
+- Generates a unique UUID for every order intent when submission is enabled
+- Builds a typed `CreateOrderRequest` for each intent
+- Submits intents sequentially through `KalshiClient.create_order()`
+- Returns successful responses as an immutable tuple
+- Tracks only orders that were submitted successfully
+- Attempts to cancel previously submitted orders if a later submission fails
+- Cancels successful orders in reverse submission order
+- Re-raises the original submission exception after cleanup succeeds
+
+This boundary is covered with `AsyncMock` and is not called by `main.py`.
+Therefore, the normal application run remains read-only even if the environment
+flag is changed. Cancellation can remove only the remaining resting quantity;
+it cannot undo contracts that filled before the cancellation request.
 
 ### Application
 
@@ -520,6 +567,7 @@ future orchestration layer must deliberately map `BUY` to Kalshi `bid` and
 - Independently rejects incomplete proposals at the risk boundary
 - Produces an empty execution plan whenever risk rejects a quote
 - Does not call `KalshiClient.create_order()`
+- Does not call `submit_execution_plan()` or `KalshiClient.cancel_order()`
 - Logs successful and failed demo API-data requests
 - Catches expected application, key-loading, and HTTP exceptions
 - Uses structured logging instead of `print()`
@@ -595,19 +643,20 @@ Current application events include:
 
 ## Testing
 
-The test suite currently has 73 passing tests:
+The test suite currently has 82 passing tests:
 
 - 11 market-model tests
 - 6 configuration tests
 - 3 logging tests
-- 7 API-model tests
-- 20 API-client tests
+- 8 API-model tests
+- 23 API-client tests
 - 3 authentication tests
 - 4 market-data-model tests
 - 3 market-snapshot-builder tests
 - 4 quote-strategy tests
 - 7 quote-risk tests
 - 5 execution-planner tests
+- 5 execution-submission tests
 
 Coverage includes:
 
@@ -635,6 +684,7 @@ Coverage includes:
 - Fixed-point balance and position parsing
 - Safe V2 create-order request defaults and JSON serialization
 - Fixed-point V2 create-order response parsing
+- Fixed-point V2 cancel-order response parsing
 - ISO 8601 timestamp parsing
 - Nested API-response parsing
 - Pagination cursor parsing
@@ -649,6 +699,11 @@ Coverage includes:
 - Verification that V2 order signatures use `POST` and the exact signed path
 - Required credentials for order creation
 - Unsuccessful order-response handling
+- Authenticated V2 cancel-order requests
+- Verification that V2 cancellation signatures use `DELETE` and the exact
+  signed path
+- Required credentials for order cancellation
+- Unsuccessful cancellation-response handling
 - Position-limit validation
 - Optional query-parameter omission
 - Credential requirements for protected requests
@@ -688,6 +743,15 @@ Coverage includes:
 - Quote-and-risk ticker consistency validation
 - Defensive rejection of approved but incomplete quotes
 - Immutable execution plans and order-intent tuples
+- Mapping internal `BUY` intents to Kalshi `bid` requests
+- Mapping internal `SELL` intents to Kalshi `ask` requests
+- Preservation of intent ticker, price, and quantity during request mapping
+- Disabled submission returning without API calls
+- Enabled submission sending every execution-plan intent
+- Unique UUID generation for each client order ID
+- Immutable submission-response tuples
+- Cancellation of previously submitted orders after a later submission failure
+- Re-raising the original submission error after successful cleanup
 
 Run the full test suite with:
 
@@ -704,7 +768,7 @@ Command explanation:
 
 Expected result:
 
-`73 passed`
+`82 passed`
 
 ## Quality checks
 
@@ -728,7 +792,7 @@ Expected results:
 
 - Ruff completes formatting successfully.
 - Ruff reports `All checks passed!`
-- pytest reports `73 passed`
+- pytest reports `82 passed`
 
 ## Completed checkpoints
 
@@ -912,6 +976,47 @@ Expected results:
 - Verified all 73 tests
 - Verified Ruff formatting and linting
 
+### Day 12
+
+- Added `kalshi_bot/execution/submission.py`
+- Added the pure `build_create_order_request()` mapper
+- Mapped internal `BUY` intents to Kalshi `bid` requests
+- Mapped internal `SELL` intents to Kalshi `ask` requests
+- Preserved fixed-point prices and quantities across the mapping boundary
+- Added the asynchronous `submit_execution_plan()` orchestration function
+- Enforced the fail-closed `order_submission_enabled` safety gate
+- Returned without API calls when submission was disabled
+- Generated a unique UUID client order ID for every submitted intent
+- Submitted enabled execution plans through `KalshiClient.create_order()`
+- Returned successful order responses as an immutable tuple
+- Tested all submission behavior with mocks only
+- Used `asyncio.run()` to match the project's existing asynchronous test pattern
+- Kept `main.py` disconnected from order submission
+- Added four execution-submission tests
+- Verified all 77 tests
+- Verified Ruff formatting and linting
+
+### Day 13
+
+- Added the typed `CancelOrderResponse` model
+- Parsed fixed-point canceled quantities into `Decimal` values
+- Added authenticated `KalshiClient.cancel_order()` support for
+  `DELETE /portfolio/events/orders/{order_id}`
+- Signed the exact V2 cancellation path with the `DELETE` method
+- Required credentials before a cancellation request can be attempted
+- Preserved HTTP-status error propagation for rejected cancellations
+- Tested all client cancellation requests through `httpx.MockTransport` only
+- Added partial-failure cleanup to `submit_execution_plan()`
+- Tracked only successfully submitted orders for cleanup
+- Attempted to cancel successful orders when a later submission failed
+- Canceled successful orders in reverse submission order
+- Re-raised the original submission exception after successful cleanup
+- Documented that cancellation cannot undo already-filled contracts
+- Kept `main.py` disconnected from submission and cancellation
+- Added five tests across API models, the API client, and execution submission
+- Verified all 82 tests
+- Verified Ruff formatting and linting
+
 ## User preferences
 
 - Explain Python concepts in relation to C# where useful
@@ -924,12 +1029,13 @@ Expected results:
 
 ## Next section
 
-Day 12: add a controlled order-submission orchestration boundary without
-enabling live execution.
+Day 14: harden partial-failure cleanup before connecting submission to
+`main.py`.
 
-The next work should deliberately map internal `OrderIntent` objects into
-Kalshi V2 `CreateOrderRequest` objects, generate unique client order IDs, and
-respect the fail-closed `order_submission_enabled` setting. Submission-disabled
-plans must produce no API calls. All submission behavior should remain covered
-by mocks, and `main.py` should remain non-live until a separate, explicit safety
-checkpoint authorizes demo order placement with appropriate credentials.
+The next work should make cleanup failures explicitly observable without losing
+the original submission failure. It should define and test the behavior when a
+previously submitted order cannot be canceled, including failures involving
+more than one successful order. All behavior should remain covered by mocks,
+and `main.py` should remain non-live until the cleanup and observability rules
+are complete and a separate checkpoint intentionally authorizes demo order
+placement with an appropriate full-access credential.

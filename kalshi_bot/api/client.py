@@ -5,6 +5,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from kalshi_bot.api.auth import create_auth_headers
 from kalshi_bot.api.models import (
+    CancelOrderResponse,
     CreateOrderRequest,
     CreateOrderResponse,
     GetBalanceResponse,
@@ -202,3 +203,29 @@ class KalshiClient:
         response.raise_for_status()
 
         return CreateOrderResponse.model_validate(response.json())
+
+    async def cancel_order(
+        self,
+        order_id: str,
+    ) -> CancelOrderResponse:
+        if self._api_key_id is None or self._private_key is None:
+            raise ValueError("API credentials are required to cancel an order.")
+
+        path = f"/trade-api/v2/portfolio/events/orders/{order_id}"
+        timestamp = str(time.time_ns() // 1_000_000)
+
+        headers = create_auth_headers(
+            api_key_id=self._api_key_id,
+            private_key=self._private_key,
+            timestamp=timestamp,
+            method="DELETE",
+            path=path,
+        )
+
+        response = await self._http_client.delete(
+            f"portfolio/events/orders/{order_id}",
+            headers=headers,
+        )
+        response.raise_for_status()
+
+        return CancelOrderResponse.model_validate(response.json())

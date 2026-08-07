@@ -677,3 +677,114 @@ def test_create_order_raises_for_unsuccessful_response() -> None:
         assert error.value.response.status_code == 409
 
     asyncio.run(run_test())
+
+
+def test_cancel_order_sends_authenticated_request_and_parses_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == ("/trade-api/v2/portfolio/events/orders/order-123")
+        assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
+
+        timestamp = request.headers["KALSHI-ACCESS-TIMESTAMP"]
+        expected_message = (
+            f"{timestamp}DELETE/trade-api/v2/portfolio/events/orders/order-123"
+        ).encode()
+
+        private_key.public_key().verify(
+            base64.b64decode(request.headers["KALSHI-ACCESS-SIGNATURE"]),
+            expected_message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.DIGEST_LENGTH,
+            ),
+            hashes.SHA256(),
+        )
+
+        return httpx.Response(
+            200,
+            json={
+                "order_id": "order-123",
+                "client_order_id": "client-order-123",
+                "reduced_by": "1.50",
+                "ts_ms": 1785970800000,
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.cancel_order("order-123")
+
+        assert result.order_id == "order-123"
+        assert result.client_order_id == "client-order-123"
+        assert result.reduced_by == Decimal("1.50")
+        assert result.ts_ms == 1785970800000
+
+    asyncio.run(run_test())
+
+
+def test_cancel_order_requires_credentials() -> None:
+    async def run_test() -> None:
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(
+                ValueError,
+                match="API credentials are required to cancel an order.",
+            ):
+                await client.cancel_order("order-123")
+
+    asyncio.run(run_test())
+
+
+def test_cancel_order_raises_for_unsuccessful_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "code": "order_not_cancelable",
+                "message": "Order cannot be canceled",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                await client.cancel_order("order-123")
+
+        assert error.value.response.status_code == 409
+
+    asyncio.run(run_test())

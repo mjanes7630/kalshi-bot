@@ -137,3 +137,12 @@ class CreateOrderResponse(BaseModel):
     ts_ms: int
     average_fill_price: Decimal | None = None
     average_fee_paid: Decimal | None = None
+
+
+class CancelOrderResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    order_id: str
+    client_order_id: str
+    reduced_by: Decimal
+    ts_ms: int
