@@ -98,3 +98,29 @@ def test_order_submission_can_be_explicitly_enabled(
     settings = Settings(_env_file=None)
 
     assert settings.order_submission_enabled is True
+
+
+def test_order_cancellation_is_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(
+        "KALSHI_BOT_ORDER_CANCELLATION_ENABLED",
+        raising=False,
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.order_cancellation_enabled is False
+
+
+def test_order_cancellation_can_be_enabled_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "KALSHI_BOT_ORDER_CANCELLATION_ENABLED",
+        "true",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.order_cancellation_enabled is True
