@@ -131,7 +131,7 @@ class CreateOrderRequest(BaseModel):
 
 class CreateOrderResponse(BaseModel):
     order_id: str
-    client_order_id: str
+    client_order_id: str | None = None
     fill_count: Decimal
     remaining_count: Decimal
     ts_ms: int
@@ -143,6 +143,23 @@ class CancelOrderResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     order_id: str
-    client_order_id: str
+    client_order_id: str | None = None
     reduced_by: Decimal
     ts_ms: int
+
+
+class KalshiOrder(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    order_id: str
+    ticker: str
+    yes_price_dollars: Decimal
+    fill_count_fp: Decimal
+    remaining_count_fp: Decimal
+    initial_count_fp: Decimal
+    client_order_id: str | None = None
+
+
+class GetOrdersResponse(BaseModel):
+    orders: list[KalshiOrder]
+    cursor: str

@@ -6,6 +6,7 @@ from kalshi_bot.api.models import (
     CreateOrderResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
+    GetOrdersResponse,
     GetPositionsResponse,
     GetTradesResponse,
     KalshiMarket,
@@ -158,6 +159,36 @@ def test_get_positions_response_parses_fixed_point_values() -> None:
     assert event_position.event_exposure_dollars == Decimal("3.1500")
     assert event_position.realized_pnl_dollars == Decimal("-0.3000")
     assert event_position.fees_paid_dollars == Decimal("0.1500")
+    assert response.cursor == "next-page"
+
+
+def test_get_orders_response_parses_fixed_point_values() -> None:
+    response = GetOrdersResponse.model_validate(
+        {
+            "orders": [
+                {
+                    "order_id": "order-123",
+                    "ticker": "TEST-MARKET",
+                    "yes_price_dollars": "0.4200",
+                    "fill_count_fp": "0.50",
+                    "remaining_count_fp": "1.50",
+                    "initial_count_fp": "2.00",
+                    "future_field": "ignored",
+                }
+            ],
+            "cursor": "next-page",
+        }
+    )
+
+    order = response.orders[0]
+
+    assert order.order_id == "order-123"
+    assert order.ticker == "TEST-MARKET"
+    assert order.yes_price_dollars == Decimal("0.4200")
+    assert order.fill_count_fp == Decimal("0.50")
+    assert order.remaining_count_fp == Decimal("1.50")
+    assert order.initial_count_fp == Decimal("2.00")
+    assert order.client_order_id is None
     assert response.cursor == "next-page"
 
 

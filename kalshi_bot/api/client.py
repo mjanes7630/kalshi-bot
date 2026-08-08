@@ -11,6 +11,7 @@ from kalshi_bot.api.models import (
     GetBalanceResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
+    GetOrdersResponse,
     GetPositionsResponse,
     GetTradesResponse,
 )
@@ -176,6 +177,44 @@ class KalshiClient:
         response.raise_for_status()
 
         return GetPositionsResponse.model_validate(response.json())
+
+    async def get_orders(
+        self,
+        *,
+        status: str,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> GetOrdersResponse:
+        if self._api_key_id is None or self._private_key is None:
+            raise ValueError("API credentials are required to retrieve orders.")
+
+        params: dict[str, str | int] = {"status": status, "limit": limit}
+
+        if cursor is not None:
+            params["cursor"] = cursor
+
+        if not 1 <= limit <= 1000:
+            raise ValueError("Order limit must be between 1 and 1000.")
+
+        path = "/trade-api/v2/portfolio/orders"
+        timestamp = str(time.time_ns() // 1_000_000)
+
+        headers = create_auth_headers(
+            api_key_id=self._api_key_id,
+            private_key=self._private_key,
+            timestamp=timestamp,
+            method="GET",
+            path=path,
+        )
+
+        response = await self._http_client.get(
+            "portfolio/orders",
+            params=params,
+            headers=headers,
+        )
+        response.raise_for_status()
+
+        return GetOrdersResponse.model_validate(response.json())
 
     async def create_order(
         self,

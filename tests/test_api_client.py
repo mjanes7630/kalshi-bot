@@ -788,3 +788,133 @@ def test_cancel_order_raises_for_unsuccessful_response() -> None:
         assert error.value.response.status_code == 409
 
     asyncio.run(run_test())
+
+
+def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/trade-api/v2/portfolio/orders"
+        assert request.url.params["status"] == "resting"
+        assert request.url.params["limit"] == "50"
+        assert request.url.params["cursor"] == "previous-page"
+        assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
+
+        timestamp = request.headers["KALSHI-ACCESS-TIMESTAMP"]
+        expected_message = (f"{timestamp}GET/trade-api/v2/portfolio/orders").encode()
+
+        private_key.public_key().verify(
+            base64.b64decode(request.headers["KALSHI-ACCESS-SIGNATURE"]),
+            expected_message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.DIGEST_LENGTH,
+            ),
+            hashes.SHA256(),
+        )
+
+        return httpx.Response(
+            200,
+            json={
+                "orders": [
+                    {
+                        "order_id": "order-123",
+                        "ticker": "TEST-MARKET",
+                        "yes_price_dollars": "0.4200",
+                        "fill_count_fp": "0.50",
+                        "remaining_count_fp": "1.50",
+                        "initial_count_fp": "2.00",
+                    }
+                ],
+                "cursor": "next-page",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_orders(
+                status="resting",
+                limit=50,
+                cursor="previous-page",
+            )
+
+        order = result.orders[0]
+
+        assert order.order_id == "order-123"
+        assert order.ticker == "TEST-MARKET"
+        assert order.remaining_count_fp == Decimal("1.50")
+        assert result.cursor == "next-page"
+
+    asyncio.run(run_test())
+
+
+def test_get_orders_requires_credentials() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP request should not be sent.")
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(
+                ValueError,
+                match="API credentials are required to retrieve orders.",
+            ):
+                await client.get_orders(status="resting")
+
+    asyncio.run(run_test())
+
+
+@pytest.mark.parametrize("limit", [0, 1001])
+def test_get_orders_rejects_invalid_limit(limit: int) -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP request should not be sent.")
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(
+                ValueError,
+                match="Order limit must be between 1 and 1000.",
+            ):
+                await client.get_orders(
+                    status="resting",
+                    limit=limit,
+                )
+
+    asyncio.run(run_test())

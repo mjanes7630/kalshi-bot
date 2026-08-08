@@ -37,7 +37,7 @@ async def submit_execution_plan(
     if not order_submission_enabled:
         return ()
 
-    orderbook_responses: list[CreateOrderResponse] = []
+    order_responses: list[CreateOrderResponse] = []
     try:
         for order_intent in execution_plan.order_intents:
             order_request = build_create_order_request(
@@ -46,12 +46,23 @@ async def submit_execution_plan(
             )
 
             order_response = await client.create_order(order_request)
-            orderbook_responses.append(order_response)
+            order_responses.append(order_response)
 
-    except Exception:
-        for order_response in reversed(orderbook_responses):
-            await client.cancel_order(order_response.order_id)
+    except Exception as submission_error:
+        cancellation_errors: list[Exception] = []
+
+        for order_response in reversed(order_responses):
+            try:
+                await client.cancel_order(order_response.order_id)
+            except Exception as cancellation_error:  # noqa: BLE001
+                cancellation_errors.append(cancellation_error)
+
+        if cancellation_errors:
+            raise ExceptionGroup(
+                "Order submission and cleanup failed",
+                [submission_error, *cancellation_errors],
+            )
 
         raise
 
-    return tuple(orderbook_responses)  # type: ignore[reportReturnAnyType]
+    return tuple(order_responses)  # type: ignore[reportReturnAnyType]

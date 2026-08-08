@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 from uuid import UUID
 
 import pytest
@@ -163,3 +163,69 @@ def test_submit_execution_plan_cancels_submitted_order_after_failure() -> None:
 
     assert client.create_order.await_count == 2
     client.cancel_order.assert_awaited_once_with("buy-order-123")
+
+
+def test_submit_execution_plan_reports_all_cleanup_failures() -> None:
+    execution_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(
+            OrderIntent(
+                ticker="TEST-MARKET",
+                side=OrderSide.BUY,
+                price=Decimal("0.4100"),
+                quantity=Decimal("1.00"),
+            ),
+            OrderIntent(
+                ticker="TEST-MARKET",
+                side=OrderSide.SELL,
+                price=Decimal("0.4500"),
+                quantity=Decimal("1.00"),
+            ),
+            OrderIntent(
+                ticker="TEST-MARKET",
+                side=OrderSide.BUY,
+                price=Decimal("0.4000"),
+                quantity=Decimal("1.00"),
+            ),
+        ),
+    )
+
+    buy_response = Mock(spec=CreateOrderResponse)
+    buy_response.order_id = "buy-order-123"
+
+    sell_response = Mock(spec=CreateOrderResponse)
+    sell_response.order_id = "sell-order-456"
+
+    submission_error = RuntimeError("third order submission failed")
+    sell_cancellation_error = RuntimeError("sell order cancellation failed")
+    buy_cancellation_error = RuntimeError("buy order cancellation failed")
+
+    client = AsyncMock(spec=KalshiClient)
+    client.create_order.side_effect = [
+        buy_response,
+        sell_response,
+        submission_error,
+    ]
+    client.cancel_order.side_effect = [
+        sell_cancellation_error,
+        buy_cancellation_error,
+    ]
+
+    with pytest.raises(ExceptionGroup) as error_info:
+        asyncio.run(
+            submit_execution_plan(
+                execution_plan,
+                client=client,
+                order_submission_enabled=True,
+            )
+        )
+
+    assert error_info.value.exceptions == (
+        submission_error,
+        sell_cancellation_error,
+        buy_cancellation_error,
+    )
+    assert client.cancel_order.await_args_list == [
+        call("sell-order-456"),
+        call("buy-order-123"),
+    ]
