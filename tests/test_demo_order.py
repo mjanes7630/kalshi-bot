@@ -1,6 +1,7 @@
 import asyncio
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock, call
+from pathlib import Path
 
 import pytest
 
@@ -12,7 +13,8 @@ from kalshi_bot.api.models import (
     GetOrderResponse,
     KalshiOrderSide,
 )
-from kalshi_bot.demo_order import verify_demo_order
+from kalshi_bot.demo_order import verify_demo_order, run_demo_order
+from kalshi_bot.config import Settings
 
 
 def test_verify_demo_order_does_not_submit_when_cancellation_disabled() -> None:
@@ -228,3 +230,45 @@ def test_verify_demo_order_does_not_submit_when_submission_disabled() -> None:
     client.create_order.assert_not_awaited()
     client.get_order.assert_not_awaited()
     client.cancel_order.assert_not_awaited()
+
+
+def test_run_demo_order_does_nothing_when_submission_is_disabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        order_submission_enabled=False,
+        order_cancellation_enabled=True,
+    )
+
+    result = asyncio.run(run_demo_order(settings))
+
+    assert result is None
+
+
+def test_run_demo_order_requires_api_key_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        private_key_path=Path("test-private-key.pem"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_API_KEY_ID is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_private_key_path_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_PRIVATE_KEY_PATH is required.",
+    ):
+        asyncio.run(run_demo_order(settings))

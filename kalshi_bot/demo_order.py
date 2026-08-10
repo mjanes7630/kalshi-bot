@@ -1,5 +1,10 @@
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.api.models import CreateOrderRequest
+from kalshi_bot.config import Settings
+
+import structlog
+
+logger = structlog.get_logger()
 
 
 async def verify_demo_order(
@@ -30,3 +35,19 @@ async def verify_demo_order(
         await client.cancel_order(order_id)
 
     return get_response
+
+
+async def run_demo_order(settings: Settings) -> None:
+    if (
+        not settings.order_submission_enabled
+        or not settings.order_cancellation_enabled
+    ):
+        return
+
+    if settings.api_key_id is None:
+        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
+
+    if settings.private_key_path is None:
+        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
+
+    logger.info("demo_order_command_ready")
