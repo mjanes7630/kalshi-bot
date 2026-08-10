@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
-from kalshi_bot.api.models import CreateOrderRequest, KalshiOrderSide
+from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
 
 
 def test_get_markets_sends_request_and_parses_response() -> None:
@@ -916,5 +916,110 @@ def test_get_orders_rejects_invalid_limit(limit: int) -> None:
                     status="resting",
                     limit=limit,
                 )
+
+    asyncio.run(run_test())
+
+
+def test_get_order_returns_specific_order() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == ("/trade-api/v2/portfolio/orders/order-123")
+        assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
+
+        return httpx.Response(
+            200,
+            json={
+                "order": {
+                    "order_id": "order-123",
+                    "client_order_id": "client-order-123",
+                    "ticker": "TEST-MARKET",
+                    "yes_price_dollars": "0.4200",
+                    "fill_count_fp": "0.00",
+                    "remaining_count_fp": "1.00",
+                    "initial_count_fp": "1.00",
+                }
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            response = await client.get_order("order-123")
+
+        assert isinstance(response, GetOrderResponse)
+        assert response.order.order_id == "order-123"
+
+    asyncio.run(run_test())
+
+
+def test_get_order_requires_credentials() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("HTTP request should not be sent.")
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(
+                ValueError,
+                match="API credentials are required to retrieve an order.",
+            ):
+                await client.get_order("order-123")
+
+    asyncio.run(run_test())
+
+
+def test_get_order_raises_for_unsuccessful_response() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={
+                "code": "order_not_found",
+                "message": "Order not found",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                await client.get_order("order-123")
+
+        assert error.value.response.status_code == 404
 
     asyncio.run(run_test())

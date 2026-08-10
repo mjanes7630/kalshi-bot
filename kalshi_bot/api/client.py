@@ -11,6 +11,7 @@ from kalshi_bot.api.models import (
     GetBalanceResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
+    GetOrderResponse,
     GetOrdersResponse,
     GetPositionsResponse,
     GetTradesResponse,
@@ -177,6 +178,32 @@ class KalshiClient:
         response.raise_for_status()
 
         return GetPositionsResponse.model_validate(response.json())
+
+    async def get_order(
+        self,
+        order_id: str,
+    ) -> GetOrderResponse:
+        if self._api_key_id is None or self._private_key is None:
+            raise ValueError("API credentials are required to retrieve an order.")
+
+        path = f"/trade-api/v2/portfolio/orders/{order_id}"
+        timestamp = str(time.time_ns() // 1_000_000)
+
+        headers = create_auth_headers(
+            api_key_id=self._api_key_id,
+            private_key=self._private_key,
+            timestamp=timestamp,
+            method="GET",
+            path=path,
+        )
+
+        response = await self._http_client.get(
+            f"portfolio/orders/{order_id}",
+            headers=headers,
+        )
+        response.raise_for_status()
+
+        return GetOrderResponse.model_validate(response.json())
 
     async def get_orders(
         self,

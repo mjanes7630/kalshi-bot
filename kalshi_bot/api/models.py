@@ -163,3 +163,9 @@ class KalshiOrder(BaseModel):
 class GetOrdersResponse(BaseModel):
     orders: list[KalshiOrder]
     cursor: str
+
+
+class GetOrderResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    order: KalshiOrder

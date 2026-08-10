@@ -6,6 +6,7 @@ from kalshi_bot.api.models import (
     CreateOrderResponse,
     GetMarketOrderbookResponse,
     GetMarketsResponse,
+    GetOrderResponse,
     GetOrdersResponse,
     GetPositionsResponse,
     GetTradesResponse,
@@ -190,6 +191,33 @@ def test_get_orders_response_parses_fixed_point_values() -> None:
     assert order.initial_count_fp == Decimal("2.00")
     assert order.client_order_id is None
     assert response.cursor == "next-page"
+
+
+def test_get_order_response_parses_order() -> None:
+    response = GetOrderResponse.model_validate(
+        {
+            "order": {
+                "order_id": "order-123",
+                "client_order_id": "client-order-123",
+                "ticker": "TEST-MARKET",
+                "yes_price_dollars": "0.4200",
+                "fill_count_fp": "0.00",
+                "remaining_count_fp": "1.00",
+                "initial_count_fp": "1.00",
+                "future_field": "ignored",
+            }
+        }
+    )
+
+    order = response.order
+
+    assert order.order_id == "order-123"
+    assert order.client_order_id == "client-order-123"
+    assert order.ticker == "TEST-MARKET"
+    assert order.yes_price_dollars == Decimal("0.4200")
+    assert order.fill_count_fp == Decimal("0.00")
+    assert order.remaining_count_fp == Decimal("1.00")
+    assert order.initial_count_fp == Decimal("1.00")
 
 
 def test_create_order_request_uses_safe_defaults() -> None:
