@@ -1,11 +1,12 @@
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock, call, patch
 from pathlib import Path
 
 import pytest
+import httpx
 
-from kalshi_bot.api.client import KalshiClient
+from kalshi_bot.api.client import KalshiClient, KALSHI_API_BASE_URL
 from kalshi_bot.api.models import (
     CancelOrderResponse,
     CreateOrderRequest,
@@ -270,5 +271,150 @@ def test_run_demo_order_requires_private_key_path_when_enabled() -> None:
     with pytest.raises(
         ValueError,
         match="KALSHI_BOT_PRIVATE_KEY_PATH is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_calls_verification_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+    )
+
+    private_key = Mock()
+    http_client = Mock()
+    logger = Mock()
+    async_client_context = AsyncMock()
+    async_client_context.__aenter__.return_value = http_client
+
+    kalshi_client = Mock(spec=KalshiClient)
+    verification_response = Mock()
+    verification_response.order.order_id = "test-order-id"
+
+    with (
+        patch(
+            "kalshi_bot.demo_order.load_private_key",
+            return_value=private_key,
+        ) as load_private_key_mock,
+        patch(
+            "kalshi_bot.demo_order.httpx.AsyncClient",
+            return_value=async_client_context,
+        ) as async_client_mock,
+        patch(
+            "kalshi_bot.demo_order.KalshiClient",
+            return_value=kalshi_client,
+        ) as client_mock,
+        patch(
+            "kalshi_bot.demo_order.verify_demo_order",
+            new=AsyncMock(return_value=verification_response),
+        ) as verification_mock,
+        patch(
+            "kalshi_bot.demo_order.logger",
+            new=logger,
+        ),
+        patch(
+            "kalshi_bot.demo_order.uuid4",
+            return_value="generated-order-id",
+        ) as uuid4_mock,
+    ):
+        result = asyncio.run(run_demo_order(settings))
+
+    assert result is verification_response
+
+    load_private_key_mock.assert_called_once_with(
+        Path("test-private-key.pem"),
+    )
+    async_client_mock.assert_called_once_with(
+        base_url=KALSHI_API_BASE_URL,
+        timeout=httpx.Timeout(10.0),
+    )
+    client_mock.assert_called_once_with(
+        http_client,
+        api_key_id="test-key-id",
+        private_key=private_key,
+    )
+
+    verification_mock.assert_awaited_once()
+
+    verification_arguments = verification_mock.await_args.kwargs
+
+    assert verification_arguments["client"] is kalshi_client
+    assert verification_arguments["order_submission_enabled"] is True
+    assert verification_arguments["order_cancellation_enabled"] is True
+
+    request = verification_arguments["request"]
+
+    assert request.ticker == "TEST-MARKET"
+    assert request.side is KalshiOrderSide.BID
+    assert request.count == Decimal("1.00")
+    assert request.price == Decimal("0.0100")
+    assert request.client_order_id == "generated-order-id"
+    uuid4_mock.assert_called_once_with()
+
+    async_client_context.__aenter__.assert_awaited_once()
+    async_client_context.__aexit__.assert_awaited_once()
+
+    logger.info.assert_has_calls(
+        [
+            call("demo_order_command_ready"),
+            call(
+                "demo_order_command_completed",
+                order_id="test-order-id",
+            ),
+        ]
+    )
+    assert logger.info.call_count == 2
+
+
+def test_run_demo_order_requires_demo_order_ticker_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_TICKER is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_TICKER is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled_and_has_whitespace() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="   ",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_TICKER is required.",
     ):
         asyncio.run(run_demo_order(settings))

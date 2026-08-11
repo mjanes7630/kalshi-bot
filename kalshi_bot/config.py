@@ -25,3 +25,4 @@ class Settings(BaseSettings):
     private_key_path: Path | None = None
     order_submission_enabled: bool = False
     order_cancellation_enabled: bool = False
+    demo_order_ticker: str | None = None
