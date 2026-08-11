@@ -7,7 +7,11 @@ import structlog
 
 from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
-from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
+from kalshi_bot.api.models import (
+    CreateOrderRequest,
+    CreateOrderResponse,
+    KalshiOrderSide,
+)
 from kalshi_bot.config import Settings
 from kalshi_bot.logging_config import configure_logging
 
@@ -16,35 +20,31 @@ logger = structlog.get_logger()
 
 async def verify_demo_order(
     order_request: CreateOrderRequest,
-    *,
     client: KalshiClient,
     order_submission_enabled: bool,
     order_cancellation_enabled: bool,
-) -> None:
+) -> CreateOrderResponse:
     if not order_submission_enabled or not order_cancellation_enabled:
         raise ValueError("Order submission and cancellation must both be enabled.")
 
     create_response = await client.create_order(order_request)
     order_id = create_response.order_id
 
-    try:
-        get_response = await client.get_order(order_id)
-    except Exception as retrieval_error:
-        try:
-            await client.cancel_order(order_id)
-        except Exception as cancellation_error:  # noqa: BLE001
-            raise ExceptionGroup(
-                "Demo-order verification and cleanup both failed.",
-                [retrieval_error, cancellation_error],
-            ) from None
-        raise
-    else:
-        await client.cancel_order(order_id)
+    logger.info(
+        "demo_order_created",
+        order_id=order_id,
+        client_order_id=create_response.client_order_id,
+        ticker=order_request.ticker,
+        count=order_request.count,
+        price=order_request.price,
+    )
 
-    return get_response
+    await client.cancel_order(order_id)
+
+    return create_response
 
 
-async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
+async def run_demo_order(settings: Settings) -> CreateOrderResponse | None:
     if not settings.order_submission_enabled or not settings.order_cancellation_enabled:
         return
 
@@ -101,7 +101,7 @@ async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
 
         logger.info(
             "demo_order_command_completed",
-            order_id=response.order.order_id,
+            order_id=response.order_id,
         )
 
         return response

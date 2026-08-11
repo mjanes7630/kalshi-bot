@@ -1,12 +1,12 @@
 # Kalshi Bot Project Status
 
-_Updated: August 8, 2026 — Day 16 complete_
+_Updated: August 11, 2026 — Day 17 complete_
 
 ## Executive summary
 
-The project now has a complete, typed path from Kalshi market data to a
-flag-gated order-submission boundary, plus an independent command for canceling
-all resting orders.
+The bot has a complete, typed path from Kalshi market data to a flag-gated
+order-submission boundary, an independent cancel-all command, and a separately
+invoked demo-order lifecycle verified in Kalshi's demo environment.
 
 Current application flow:
 
@@ -16,21 +16,25 @@ Emergency cancellation flow:
 
 `cancel_orders command -> retrieve every resting-order page -> cancel every resting order -> structured completion log`
 
-Day 16 is complete. The latest full local test run passed. Based on the 93 tests
-on the currently pushed `main` branch plus the two cancellation-setting tests
-and six cancellation-command tests completed locally, the current expected
-total is **101 passing tests**.
+Controlled demo-order flow:
 
-The bot has not intentionally placed a real order. The current Kalshi demo key
-is read-only, order submission defaults to disabled, and order cancellation
-defaults to disabled.
+`demo_order command -> create one minimum post-only demo order -> log exchange order ID -> cancel immediately -> completion log`
+
+Day 17 is complete. The full local suite passed with **124 tests**, and Ruff's
+lint and formatting checks passed. The controlled demo command successfully
+created a demo order (`201 Created`) and immediately cancelled it
+(`200 OK`), with no GET request and no traceback.
+
+The normal bot remains unable to submit or cancel unless its separate safety
+flags are explicitly enabled. Both flags remain `false` in the private
+`.env` outside controlled testing.
 
 ## Environment
 
 - Windows and PowerShell
 - Cursor
 - Python 3.14.6
-- uv for Python and dependency management
+- uv for dependency management
 - pytest for testing
 - Ruff for formatting and linting
 - Pydantic for typed configuration and API-response validation
@@ -65,6 +69,7 @@ kalshi_bot/
     quotes.py
   cancel_orders.py
   config.py
+  demo_order.py
   logging_config.py
   main.py
 
@@ -74,6 +79,7 @@ tests/
   test_auth.py
   test_cancel_orders.py
   test_config.py
+  test_demo_order.py
   test_execution_cancellation.py
   test_execution_planner.py
   test_execution_submission.py
@@ -90,215 +96,150 @@ tests/
 ### Configuration and logging
 
 `Settings` loads typed configuration from `.env` and `KALSHI_BOT_`
-environment variables.
-
-Current safety-relevant settings include:
+environment variables. Safety-relevant settings include:
 
 - `api_key_id`
 - `private_key_path`
 - `order_submission_enabled`, defaulting to `False`
 - `order_cancellation_enabled`, defaulting to `False`
+- Demo-order ticker, count, and price settings
 
-`.env.example` documents both action flags as disabled. The real `.env` and RSA
-private key remain outside version control.
+`.env.example` documents both action flags as disabled. The real `.env`,
+full-access demo credential, and RSA private key remain outside version control.
 
-Structlog produces readable development logs and JSON production logs. The
-current execution-related events include:
-
-- `dry_run_execution_planned`
-- `execution_submission_evaluated`
-- `order_cancellation_disabled`
-- `order_cancellation_completed`
+Structlog supports readable development logs and JSON production logs. Current
+execution events include `dry_run_execution_planned`,
+`execution_submission_evaluated`, `order_cancellation_disabled`,
+`order_cancellation_completed`, `demo_order_command_ready`,
+`demo_order_created`, and `demo_order_command_completed`.
 
 ### Authentication and API client
 
 The bot loads a PEM-formatted RSA private key and signs authenticated Kalshi
 requests with RSA-PSS and SHA-256. Query parameters are excluded from the
-signed path, matching Kalshi's authentication rules.
+signed path, matching Kalshi authentication rules.
 
-`KalshiClient` currently supports:
+`KalshiClient` supports market, order-book, recent-trade, balance, and
+position retrieval; event-order creation; individual event-order cancellation;
+and paginated resting-order retrieval. It targets Kalshi's demo REST
+environment. Tests use mocks or `httpx.MockTransport`; they do not contact
+Kalshi.
 
-- Market retrieval
-- Market-order-book retrieval
-- Recent-trade retrieval
-- Balance retrieval
-- Position retrieval
-- Order creation
-- Individual order cancellation
-- Paginated resting-order retrieval
+### Market-data boundary, strategy, and risk
 
-The client targets Kalshi's demo REST environment. Tests use mocks or
-`httpx.MockTransport`; they do not contact Kalshi.
-
-### Market-data boundary
-
-Pydantic models parse Kalshi's fixed-point strings into `Decimal` values and
+Pydantic models parse Kalshi fixed-point strings into `Decimal` values and
 timestamps into typed `datetime` values.
 
 `build_market_snapshot()` converts exchange-specific responses into immutable
-internal models. It sorts YES bids, converts NO bids into implied YES asks,
-sorts asks, filters trades by ticker, and accepts a caller-provided observation
-time for deterministic testing.
+internal models: it sorts YES bids, converts NO bids to implied YES asks,
+filters trades by ticker, and supports a caller-provided observation time for
+deterministic testing.
 
-This keeps strategy code independent of Kalshi JSON field names and response
-layout.
+`decide_quotes()` is pure and deterministic. It requires a complete two-sided
+YES book, joins the best bid and implied ask, uses an explicit quantity, and
+produces no quote for incomplete books.
 
-### Strategy
+`evaluate_quote_risk()` is pure and deterministic. It rejects incomplete
+quotes, quantities above the configured maximum, and zero or negative limits.
+It does not yet enforce portfolio exposure, available balance, inventory skew,
+loss, market status, or stale-data limits.
 
-`decide_quotes()` is pure and deterministic. It currently:
-
-- Requires both sides of the YES order book
-- Joins the best YES bid and best implied YES ask
-- Uses an explicit quote quantity
-- Produces no quote for incomplete books
-
-The current strategy is intentionally simple. It does not yet account for
-fees, inventory, desired edge, volatility, or fill probability.
-
-### Risk
-
-`evaluate_quote_risk()` is pure and deterministic. It currently:
-
-- Rejects incomplete two-sided quotes
-- Rejects either side above the configured maximum quote quantity
-- Rejects invalid zero or negative limits
-- Produces an immutable, observable decision
-
-The current gate does not yet enforce portfolio exposure, available balance,
-inventory skew, cumulative loss, market status, or stale-data limits.
-
-### Planning and submission
+### Planning, submission, and cancellation
 
 `create_execution_plan()` converts an approved two-sided quote into immutable
-internal `BUY` and `SELL` intents. Rejected risk decisions produce an empty
+internal `BUY` and `SELL` intents; rejected risk decisions create an empty
 plan.
 
-`submit_execution_plan()`:
+`submit_execution_plan()` returns without API calls when submission is
+disabled, maps internal sides to Kalshi values, generates unique UUID client
+order IDs, submits sequentially, and tracks only successful submissions. If a
+later submission fails, it cancels successful earlier orders in reverse order.
+It preserves the submission exception when cleanup succeeds and raises an
+`ExceptionGroup` when cleanup also fails.
 
-- Returns without API calls when order submission is disabled
-- Maps internal sides to Kalshi `bid` and `ask` values
-- Generates a unique UUID client order ID for every intent
-- Submits orders sequentially
-- Tracks only successful submissions
-- Cancels successful earlier orders in reverse order if a later submission fails
-- Preserves the original submission exception when cleanup succeeds
-- Raises an `ExceptionGroup` containing the submission failure and every cleanup
-  failure when cleanup also fails
+`retrieve_all_resting_orders()` follows pagination until the cursor is empty,
+returns an immutable tuple, and rejects a repeated cursor. The
+`cancel_all_resting_orders()` service returns safely when disabled, attempts
+every cancellation even when one fails, and raises an `ExceptionGroup` for
+cancellation failures.
 
-`main.py` now calls this boundary, but the default-disabled setting keeps the
-normal application run non-submitting.
+`kalshi_bot.cancel_orders` is an independent command-line kill switch. When
+enabled, it loads credentials, opens an authenticated async client, cancels all
+resting orders, and logs the canceled count. It cannot undo contracts that
+filled before the cancellation request arrived.
 
-### Resting-order cancellation
+### Controlled demo-order verification
 
-`retrieve_all_resting_orders()`:
+`kalshi_bot.demo_order` is intentionally separate from the normal bot loop.
+It requires **both** submission and cancellation flags to be enabled, then:
 
-- Retrieves resting orders with the maximum page size
-- Follows pagination until the cursor is empty
-- Returns an immutable tuple
-- Detects a repeated cursor and fails instead of looping forever
+1. Creates one tightly limited, post-only demo order.
+2. Logs both the local `client_order_id` and Kalshi's returned exchange
+   `order_id`.
+3. Immediately cancels the returned exchange `order_id`.
+4. Logs completion and closes the HTTP client.
 
-`cancel_all_resting_orders()`:
+The command deliberately does **not** use `get_order()`. Live testing showed
+that a single-order GET returned `404 Not Found` for an event-order ID, while
+the create and cancellation event-order endpoints worked together. The
+successful create response is therefore the creation verification record, and
+the immediate cancellation response verifies cleanup.
 
-- Returns without API calls when cancellation is disabled
-- Attempts every retrieved cancellation even when an earlier one fails
-- Returns successful cancellation responses as an immutable tuple
-- Raises an `ExceptionGroup` containing all cancellation failures
+Final Day 17 live result:
 
-`kalshi_bot.cancel_orders` is an independent command-line kill switch. Its
-orchestration:
+```text
+POST /portfolio/events/orders                 -> 201 Created
+DELETE /portfolio/events/orders/{order_id}    -> 200 OK
+demo_order_command_completed                  -> logged
+```
 
-1. Loads settings and configures logging.
-2. Returns immediately and logs `order_cancellation_disabled` when disabled.
-3. Requires the API key ID and private-key path only when enabled.
-4. Loads the RSA private key.
-5. Opens and safely closes an asynchronous HTTP client.
-6. Creates an authenticated `KalshiClient`.
-7. Calls the tested resting-order cancellation service.
-8. Logs `order_cancellation_completed` with the canceled-order count.
-
-Cancellation cannot undo contracts that filled before the cancellation request
-reached Kalshi.
+No GET request occurred and no traceback was raised.
 
 ## Safety posture
 
 Implemented safeguards:
 
 - Kalshi demo environment is used.
-- The current configured API credential is read-only.
-- Submission and global cancellation use separate fail-closed flags.
+- Submission and global cancellation have separate fail-closed flags.
 - Both flags default to `False`.
 - The normal application cannot submit unless submission is explicitly enabled.
-- The kill-switch command cannot cancel unless cancellation is explicitly enabled.
+- The kill-switch cannot cancel unless cancellation is explicitly enabled.
+- The demo command requires both flags, is separate from the normal loop, and
+  immediately cancels the order it creates.
 - Order requests default to post-only and cancel-on-pause behavior.
-- Partial two-order submission triggers cleanup of successful earlier orders.
+- Partial two-order submission triggers reverse-order cleanup.
 - Cleanup and global cancellation attempt all relevant cancellations.
 - Multi-error failures remain observable through `ExceptionGroup`.
-- HTTP clients are managed with `async with` and are closed automatically.
-- All write-path tests are mocked.
+- HTTP clients use `async with` and close automatically.
+- All write-path tests are mocked; the isolated Day 17 demo was an intentional,
+  bounded manual action.
 
-Important remaining limitations:
+Remaining limitations:
 
-- A cancellation may arrive after an order has partially or fully filled.
+- A cancellation may arrive after an order partially or fully fills.
 - There is no continuous open-order reconciliation loop.
-- There is no inventory, exposure, drawdown, or daily-loss protection.
+- There are no inventory, exposure, drawdown, or daily-loss protections.
 - There is no stale-market-data or closed-market gate.
 - There is no retry, rate-limit, or transient-network policy.
-- There is no durable state or restart recovery.
-- There is no production deployment or alerting configuration.
+- There is no durable state, restart recovery, production deployment, or alerts.
 
-## Testing
+## Testing and quality gate
 
-The expected local suite contains **101 passing test cases**:
+The latest complete local suite passed with **124 tests**.
 
-| Area | Tests |
-|---|---:|
-| Market model | 11 |
-| Configuration | 8 |
-| Logging | 3 |
-| API models | 9 |
-| API client | 27 |
-| Authentication | 3 |
-| Market-data models | 4 |
-| Snapshot builder | 3 |
-| Quote strategy | 4 |
-| Quote risk | 7 |
-| Execution planner | 5 |
-| Execution submission | 6 |
-| Resting-order cancellation service | 5 |
-| Cancellation command | 6 |
-| **Total** | **101** |
+Demo-order tests cover disabled execution, both flag requirements, safe async
+client setup and cleanup, request construction, the
+`create -> cancel -> return create response` lifecycle, cancellation with the
+exchange `order_id` rather than the local ID, no `get_order()` call,
+cancellation failures, and flat `CreateOrderResponse` completion logging.
 
-The six cancellation-command tests verify:
-
-- Disabled execution returns safely
-- Missing API key validation
-- Missing private-key-path validation
-- Enabled orchestration with mocked dependencies
-- Command-line entry-point wiring
-- Disabled and successful-completion logging
-
-## Quality gate
-
-Run the complete quality gate with:
+Final Day 17 validation passed:
 
 ```powershell
-uv run ruff format .
 uv run ruff check .
-uv run python -m pytest -v
+uv run ruff format --check .
+uv run python -m pytest
 ```
-
-- `uv run` executes each command inside the managed project environment.
-- `ruff format .` formats applicable files under the current directory.
-- `ruff check .` checks the same project for lint and code-quality problems.
-- `python -m pytest -v` runs the complete test suite and prints every test name.
-- Each `.` means the current directory.
-- PowerShell runs the three lines sequentially.
-
-Expected results:
-
-- Ruff formatting completes successfully.
-- Ruff reports `All checks passed!`.
-- pytest reports all tests passing; the expected current total is `101 passed`.
 
 ## Completed checkpoints
 
@@ -318,40 +259,39 @@ Expected results:
 | 12 | Execution-plan mapping and flag-gated submission orchestration | 77 |
 | 13 | Typed cancellation API and partial-submission cleanup | 82 |
 | 14 | Multi-failure cleanup observability with `ExceptionGroup` | 83 |
-| 15 | Connected submission to `main.py` behind the disabled flag and added submission-result logging | 83 |
-| 16 | Resting-order pagination, cancel-all service, independent kill-switch command, and cancellation logging | 101 |
+| 15 | Connected submission to `main.py` behind the disabled flag and submission-result logging | 83 |
+| 16 | Resting-order pagination, cancel-all service, independent kill switch, and cancellation logging | 101 |
+| 17 | Isolated full-access demo command, corrected event-order ID handling, create-to-cancel lifecycle, mocked coverage, and live verification | 124 |
 
 ## Remaining development
 
-### Milestone 1: first deliberately operational demo bot
+### Milestone 1: bounded single-market demo lifecycle
 
-Estimated remaining work: **2–3 focused development days**.
+Estimated remaining work: **2–4 focused development days**.
 
-1. Add an explicit, tightly limited demo-order verification command using a
-   separate full-access demo credential.
-2. Submit the smallest permitted post-only demo order, verify the response,
-   retrieve the resting order, and cancel it immediately.
-3. Add a bounded single-market quote lifecycle: retrieve, decide, risk-check,
-   reconcile, submit or replace, and cancel during graceful shutdown.
-4. Keep maximum cycles, polling interval, quantity, ticker, and both action
+1. Add a bounded single-market quote lifecycle: retrieve market data, decide,
+   risk-check, reconcile, submit or replace, and cancel during graceful
+   shutdown.
+2. Reconcile desired quotes against actual resting orders so duplicates are not
+   blindly created.
+3. Make maximum cycles, polling interval, quantity, ticker, and both action
    flags explicit and fail-closed.
+4. Add graceful shutdown that cancels the bot's own resting orders.
 
-At this milestone the bot can operate on one demo market for a bounded period.
-It should not yet be treated as safe for unattended real-money operation.
+At this milestone, the bot can operate on one demo market for a bounded period.
+It is not yet safe for unattended real-money operation.
 
 ### Milestone 2: reliable unattended demo operation
 
 Estimated additional work: **5–8 development days** after Milestone 1.
 
-- Reconcile desired quotes against actual resting orders instead of blindly
-  submitting new orders.
 - Add balance, inventory, per-market exposure, portfolio exposure, and loss
   limits.
 - Add market-status, stale-data, spread, and fee/profitability gates.
 - Add timeout, retry, exponential-backoff, and rate-limit handling.
-- Add graceful shutdown and startup recovery drills.
-- Add structured cycle summaries, error alerts, and fault-injection tests.
-- Run extended demo soak tests and review behavior after partial fills.
+- Add startup recovery and reconciliation drills.
+- Add cycle summaries, error alerts, fault-injection tests, and extended demo
+  soak tests.
 
 ### Milestone 3: small live-money pilot
 
@@ -361,29 +301,26 @@ soak period, after Milestone 2.
 - Add durable order and fill reconciliation across restarts.
 - Add hard daily-loss and total-exposure circuit breakers.
 - Add deployment, monitoring, alerts, and operational runbooks.
-- Test credential rotation and kill-switch operation from the deployed
-  environment.
-- Start with one market, minimum size, short sessions, and supervised operation.
+- Test credential rotation and kill-switch operation from deployment.
+- Start with one market, minimum size, short sessions, and supervision.
 
 ## Overall progress estimate
 
-- **About 80–85% complete** toward a bounded, operational single-market demo bot.
-- **About 55–65% complete** toward a reliable unattended demo bot.
-- **About 40–50% complete** toward a responsibly supervised live-money pilot.
+- **About 85–90% complete** toward a bounded, operational single-market demo bot.
+- **About 60–70% complete** toward a reliable unattended demo bot.
+- **About 45–55% complete** toward a responsibly supervised live-money pilot.
 
-The foundational architecture is largely complete: typed data, authentication,
-strategy, risk, planning, submission, cleanup, cancellation, logging, and tests
-all have explicit boundaries. Most remaining work is no longer basic Python
-plumbing; it is order-lifecycle management, broader risk control, recovery,
+The foundation is complete: typed data, authentication, strategy, risk,
+planning, submission, cleanup, cancellation, a manually verified demo write
+path, logging, and tests all have explicit boundaries. Remaining work is
+continuous order-lifecycle management, broader risk control, recovery,
 observability, and operational validation.
 
 ## Next checkpoint
 
-Day 17 should prepare the controlled demo-order verification path without
-changing either action flag's safe default. No full-access credential should be
-added to the repository, and no order should be submitted until the exact
-ticker, size, price behavior, cancellation sequence, and operator checkpoint
-have been reviewed.
+Day 18 should define reconciliation behavior in tests before writing the
+bounded single-market loop. Both action flags remain disabled by default, and
+the normal bot loop must remain safe when either flag is disabled.
 
 ## Working preferences
 
@@ -394,3 +331,4 @@ have been reviewed.
 - Bundle routine formatting, linting, and full-suite commands when practical.
 - Do not advance a write-capable checkpoint until the preceding safety and test
   foundation passes.
+

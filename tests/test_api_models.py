@@ -273,6 +273,21 @@ def test_create_order_response_parses_fixed_point_values() -> None:
     assert response.average_fee_paid == Decimal("0.0012")
 
 
+def test_create_order_response_preserves_exchange_order_id() -> None:
+    response = CreateOrderResponse.model_validate(
+        {
+            "order_id": "exchange-order-id",
+            "client_order_id": "client-order-id",
+            "fill_count": "0.00",
+            "remaining_count": "1.00",
+            "ts_ms": 1_715_793_600_123,
+        }
+    )
+
+    assert response.order_id == "exchange-order-id"
+    assert response.client_order_id == "client-order-id"
+
+
 def test_cancel_order_response_parses_fixed_point_values() -> None:
     response = CancelOrderResponse.model_validate(
         {

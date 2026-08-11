@@ -47,7 +47,7 @@ def test_verify_demo_order_does_not_submit_when_cancellation_disabled() -> None:
     client.cancel_order.assert_not_awaited()
 
 
-def test_verify_demo_order_creates_retrieves_and_cancels_order() -> None:
+def test_verify_demo_order_creates_and_cancels_order() -> None:
     order_request = CreateOrderRequest(
         ticker="TEST-MARKET",
         client_order_id="client-order-123",
@@ -58,13 +58,12 @@ def test_verify_demo_order_creates_retrieves_and_cancels_order() -> None:
 
     create_response = Mock(spec=CreateOrderResponse)
     create_response.order_id = "order-123"
+    create_response.client_order_id = "client-order-id"
 
-    get_response = Mock(spec=GetOrderResponse)
     cancel_response = Mock(spec=CancelOrderResponse)
 
     client = AsyncMock(spec=KalshiClient)
     client.create_order.return_value = create_response
-    client.get_order.return_value = get_response
     client.cancel_order.return_value = cancel_response
 
     result = asyncio.run(
@@ -76,41 +75,11 @@ def test_verify_demo_order_creates_retrieves_and_cancels_order() -> None:
         )
     )
 
-    assert result is get_response
+    assert result is create_response
     assert client.mock_calls == [
         call.create_order(order_request),
-        call.get_order("order-123"),
         call.cancel_order("order-123"),
     ]
-
-
-def test_verify_demo_order_cancels_order_when_retrieval_fails() -> None:
-    order_request = CreateOrderRequest(
-        ticker="TEST-MARKET",
-        client_order_id="client-order-123",
-        side=KalshiOrderSide.BID,
-        count=Decimal("1.00"),
-        price=Decimal("0.0100"),
-    )
-
-    create_response = Mock(spec=CreateOrderResponse)
-    create_response.order_id = "order-123"
-
-    client = AsyncMock(spec=KalshiClient)
-    client.create_order.return_value = create_response
-    client.get_order.side_effect = RuntimeError("Retrieval failed")
-
-    with pytest.raises(RuntimeError, match="Retrieval failed"):
-        asyncio.run(
-            verify_demo_order(
-                order_request,
-                client=client,
-                order_submission_enabled=True,
-                order_cancellation_enabled=True,
-            )
-        )
-
-    client.cancel_order.assert_awaited_once_with("order-123")
 
 
 def test_verify_demo_order_raises_when_cancellation_fails() -> None:
@@ -124,6 +93,7 @@ def test_verify_demo_order_raises_when_cancellation_fails() -> None:
 
     create_response = Mock(spec=CreateOrderResponse)
     create_response.order_id = "order-123"
+    create_response.client_order_id = "client-order-id"
 
     get_response = Mock(spec=GetOrderResponse)
 
@@ -143,41 +113,6 @@ def test_verify_demo_order_raises_when_cancellation_fails() -> None:
         )
 
     client.cancel_order.assert_awaited_once_with("order-123")
-
-
-def test_verify_demo_order_raises_both_errors_when_retrieval_and_cancellation_fail() -> (
-    None
-):
-    order_request = CreateOrderRequest(
-        ticker="TEST-MARKET",
-        client_order_id="client-order-123",
-        side=KalshiOrderSide.BID,
-        count=Decimal("1.00"),
-        price=Decimal("0.0100"),
-    )
-
-    create_response = Mock(spec=CreateOrderResponse)
-    create_response.order_id = "order-123"
-
-    client = AsyncMock(spec=KalshiClient)
-    client.create_order.return_value = create_response
-    client.get_order.side_effect = RuntimeError("Retrieval failed")
-    client.cancel_order.side_effect = RuntimeError("Cancellation failed")
-
-    with pytest.raises(ExceptionGroup) as error:
-        asyncio.run(
-            verify_demo_order(
-                order_request,
-                client=client,
-                order_submission_enabled=True,
-                order_cancellation_enabled=True,
-            )
-        )
-
-    assert [str(exception) for exception in error.value.exceptions] == [
-        "Retrieval failed",
-        "Cancellation failed",
-    ]
 
 
 def test_verify_demo_order_does_not_retrieve_or_cancel_when_creation_fails() -> None:
@@ -295,8 +230,8 @@ def test_run_demo_order_calls_verification_when_enabled() -> None:
     async_client_context.__aenter__.return_value = http_client
 
     kalshi_client = Mock(spec=KalshiClient)
-    verification_response = Mock()
-    verification_response.order.order_id = "test-order-id"
+    verification_response = Mock(spec=CreateOrderResponse)
+    verification_response.order_id = "test-order-id"
 
     with (
         patch(
