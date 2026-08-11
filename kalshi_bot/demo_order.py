@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 from uuid import uuid4
 
@@ -8,6 +9,7 @@ from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
 from kalshi_bot.config import Settings
+from kalshi_bot.logging_config import configure_logging
 
 logger = structlog.get_logger()
 
@@ -103,3 +105,13 @@ async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
         )
 
         return response
+
+
+def main() -> None:
+    settings = Settings()
+    configure_logging(settings)
+    asyncio.run(run_demo_order(settings))
+
+
+if __name__ == "__main__":
+    main()

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock, call, patch
 import httpx
 import pytest
 
+from kalshi_bot import demo_order
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.api.models import (
     CancelOrderResponse,
@@ -513,3 +514,34 @@ def test_run_demo_order_requires_demo_order_price_below_one_when_enabled() -> No
         match="KALSHI_BOT_DEMO_ORDER_PRICE must be less than one.",
     ):
         asyncio.run(run_demo_order(settings))
+
+
+def test_main_runs_demo_order() -> None:
+    settings = Mock(spec=Settings)
+    demo_order_coroutine = Mock()
+
+    with (
+        patch(
+            "kalshi_bot.demo_order.Settings",
+            return_value=settings,
+        ) as settings_mock,
+        patch(
+            "kalshi_bot.demo_order.configure_logging",
+            new_callable=Mock,
+        ) as configure_logging_mock,
+        patch(
+            "kalshi_bot.demo_order.run_demo_order",
+            new_callable=Mock,
+            return_value=demo_order_coroutine,
+        ) as run_demo_order_mock,
+        patch(
+            "kalshi_bot.demo_order.asyncio.run",
+        ) as asyncio_run_mock,
+    ):
+        result = demo_order.main()
+
+    assert result is None
+    settings_mock.assert_called_once_with()
+    configure_logging_mock.assert_called_once_with(settings)
+    run_demo_order_mock.assert_called_once_with(settings)
+    asyncio_run_mock.assert_called_once_with(demo_order_coroutine)
