@@ -1,12 +1,12 @@
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock, call, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, call, patch
 
-import pytest
 import httpx
+import pytest
 
-from kalshi_bot.api.client import KalshiClient, KALSHI_API_BASE_URL
+from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.api.models import (
     CancelOrderResponse,
     CreateOrderRequest,
@@ -14,8 +14,8 @@ from kalshi_bot.api.models import (
     GetOrderResponse,
     KalshiOrderSide,
 )
-from kalshi_bot.demo_order import verify_demo_order, run_demo_order
 from kalshi_bot.config import Settings
+from kalshi_bot.demo_order import run_demo_order, verify_demo_order
 
 
 def test_verify_demo_order_does_not_submit_when_cancellation_disabled() -> None:
@@ -283,6 +283,8 @@ def test_run_demo_order_calls_verification_when_enabled() -> None:
         order_submission_enabled=True,
         order_cancellation_enabled=True,
         demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("2.00"),
+        demo_order_price=Decimal("0.0200"),
     )
 
     private_key = Mock()
@@ -346,13 +348,13 @@ def test_run_demo_order_calls_verification_when_enabled() -> None:
     assert verification_arguments["order_submission_enabled"] is True
     assert verification_arguments["order_cancellation_enabled"] is True
 
-    request = verification_arguments["request"]
+    order_request = verification_arguments["order_request"]
 
-    assert request.ticker == "TEST-MARKET"
-    assert request.side is KalshiOrderSide.BID
-    assert request.count == Decimal("1.00")
-    assert request.price == Decimal("0.0100")
-    assert request.client_order_id == "generated-order-id"
+    assert order_request.ticker == "TEST-MARKET"
+    assert order_request.side is KalshiOrderSide.BID
+    assert order_request.count == Decimal("2.00")
+    assert order_request.price == Decimal("0.0200")
+    assert order_request.client_order_id == "generated-order-id"
     uuid4_mock.assert_called_once_with()
 
     async_client_context.__aenter__.assert_awaited_once()
@@ -403,7 +405,9 @@ def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled() -> No
         asyncio.run(run_demo_order(settings))
 
 
-def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled_and_has_whitespace() -> None:
+def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled_and_has_whitespace() -> (
+    None
+):
     settings = Settings(
         _env_file=None,
         api_key_id="test-api-key-id",
@@ -416,5 +420,96 @@ def test_run_demo_order_requires_nonempty_demo_order_ticker_when_enabled_and_has
     with pytest.raises(
         ValueError,
         match="KALSHI_BOT_DEMO_ORDER_TICKER is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_demo_order_count_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_COUNT is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_positive_demo_order_count_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("0.00"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_COUNT must be greater than zero.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_demo_order_price_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("1.00"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_PRICE is required.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_positive_demo_order_price_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("1.00"),
+        demo_order_price=Decimal("0.0000"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_PRICE must be greater than zero.",
+    ):
+        asyncio.run(run_demo_order(settings))
+
+
+def test_run_demo_order_requires_demo_order_price_below_one_when_enabled() -> None:
+    settings = Settings(
+        _env_file=None,
+        api_key_id="test-api-key-id",
+        private_key_path=Path("test-private-key.pem"),
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("1.00"),
+        demo_order_price=Decimal("1.0001"),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="KALSHI_BOT_DEMO_ORDER_PRICE must be less than one.",
     ):
         asyncio.run(run_demo_order(settings))

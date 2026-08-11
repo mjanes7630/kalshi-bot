@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
@@ -26,3 +27,5 @@ class Settings(BaseSettings):
     order_submission_enabled: bool = False
     order_cancellation_enabled: bool = False
     demo_order_ticker: str | None = None
+    demo_order_count: Decimal | None = None
+    demo_order_price: Decimal | None = None

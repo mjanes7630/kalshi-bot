@@ -1,14 +1,13 @@
-import httpx
-
-from kalshi_bot.api.client import KalshiClient, KALSHI_API_BASE_URL
-from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
-from kalshi_bot.config import Settings
-from kalshi_bot.api.auth import load_private_key
-
-import structlog
-
 from decimal import Decimal
 from uuid import uuid4
+
+import httpx
+import structlog
+
+from kalshi_bot.api.auth import load_private_key
+from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
+from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
+from kalshi_bot.config import Settings
 
 logger = structlog.get_logger()
 
@@ -44,10 +43,7 @@ async def verify_demo_order(
 
 
 async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
-    if (
-        not settings.order_submission_enabled
-        or not settings.order_cancellation_enabled
-    ):
+    if not settings.order_submission_enabled or not settings.order_cancellation_enabled:
         return
 
     if settings.api_key_id is None:
@@ -58,6 +54,21 @@ async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
 
     if not settings.demo_order_ticker or not settings.demo_order_ticker.strip():
         raise ValueError("KALSHI_BOT_DEMO_ORDER_TICKER is required.")
+
+    if settings.demo_order_count is None:
+        raise ValueError("KALSHI_BOT_DEMO_ORDER_COUNT is required.")
+
+    if settings.demo_order_count <= Decimal("0.00"):
+        raise ValueError("KALSHI_BOT_DEMO_ORDER_COUNT must be greater than zero.")
+
+    if settings.demo_order_price is None:
+        raise ValueError("KALSHI_BOT_DEMO_ORDER_PRICE is required.")
+
+    if settings.demo_order_price <= Decimal("0.00"):
+        raise ValueError("KALSHI_BOT_DEMO_ORDER_PRICE must be greater than zero.")
+
+    if settings.demo_order_price >= Decimal("1.00"):
+        raise ValueError("KALSHI_BOT_DEMO_ORDER_PRICE must be less than one.")
 
     logger.info("demo_order_command_ready")
 
@@ -75,12 +86,12 @@ async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
 
         response = await verify_demo_order(
             client=client,
-            request=CreateOrderRequest(
+            order_request=CreateOrderRequest(  # type: ignore
                 ticker=settings.demo_order_ticker,
                 client_order_id=str(uuid4()),
                 side=KalshiOrderSide.BID,
-                count=Decimal("1.00"),
-                price=Decimal("0.0100"),
+                count=settings.demo_order_count,
+                price=settings.demo_order_price,
             ),
             order_submission_enabled=settings.order_submission_enabled,
             order_cancellation_enabled=settings.order_cancellation_enabled,
@@ -92,5 +103,3 @@ async def run_demo_order(settings: Settings) -> GetOrderResponse | None:
         )
 
         return response
-
-        
