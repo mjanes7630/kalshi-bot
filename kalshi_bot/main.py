@@ -240,7 +240,7 @@ def main() -> None:
 
     try:
         asyncio.run(retrieve_demo_api_data(settings))
-    except (OSError, ValueError, TypeError, httpx.HTTPError) as error:
+    except (OSError, ValueError, TypeError, httpx.HTTPError, ExceptionGroup) as error:
         logger.error(
             "demo_api_data_retrieval_failed",
             error=str(error),
