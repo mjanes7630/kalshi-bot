@@ -13,7 +13,7 @@ class ReconciliationDecision:
 
 def reconcile_orders(
     *,
-    desired_orders: tuple[str, ...],
+    desired_orders: tuple[OrderIntent, ...],
     resting_orders: tuple[KalshiOrder, ...],
 ) -> ReconciliationDecision:
     unmatched_resting_orders = list(resting_orders)
