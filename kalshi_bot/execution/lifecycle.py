@@ -31,7 +31,7 @@ async def reconcile_execution_plan(
         for order_id in decision.order_ids_to_cancel:
             try:
                 await client.cancel_order(order_id)
-            except Exception as error: # noqa: BLE001
+            except Exception as error:  # noqa: BLE001
                 cancellation_errors.append(error)
 
     if cancellation_errors:

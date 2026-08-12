@@ -8,8 +8,8 @@ import structlog
 from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.config import Settings
+from kalshi_bot.execution.lifecycle import reconcile_execution_plan
 from kalshi_bot.execution.planner import create_execution_plan
-from kalshi_bot.execution.submission import submit_execution_plan
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
@@ -100,10 +100,11 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             risk_decision,
         )
 
-        order_responses = await submit_execution_plan(
+        reconciliation_decision = await reconcile_execution_plan(
             execution_plan,
             client=client,
             order_submission_enabled=settings.order_submission_enabled,
+            order_cancellation_enabled=settings.order_cancellation_enabled,
         )
 
         balance = await client.get_balance()
@@ -177,23 +178,14 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
         ],
     )
 
-    if not settings.order_submission_enabled:
-        submission_status = "disabled"
-    elif order_responses:
-        submission_status = "successful"
-    else:
-        submission_status = "no_order_intents"
-
     logger.info(
-        "execution_submission_evaluated",
+        "execution_plan_reconciled",
         ticker=execution_plan.ticker,
-        status=submission_status,
         order_submission_enabled=settings.order_submission_enabled,
+        order_cancellation_enabled=settings.order_cancellation_enabled,
         planned_order_count=len(execution_plan.order_intents),
-        submitted_order_count=len(order_responses),
-        submitted_order_ids=[
-            order_response.order_id for order_response in order_responses
-        ],
+        orders_to_cancel=len(reconciliation_decision.order_ids_to_cancel),
+        orders_to_submit=len(reconciliation_decision.order_intents_to_submit),
     )
 
 

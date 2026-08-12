@@ -1,7 +1,8 @@
 import asyncio
-import pytest
 from decimal import Decimal
 from unittest.mock import AsyncMock, Mock, call
+
+import pytest
 
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.api.models import (
@@ -146,7 +147,9 @@ def test_reconcile_execution_plan_submits_missing_order_when_enabled() -> None:
     assert order_request.client_order_id
 
 
-def test_reconcile_execution_plan_replaces_outdated_order_when_both_actions_enabled() -> None:
+def test_reconcile_execution_plan_replaces_outdated_order_when_both_actions_enabled() -> (
+    None
+):
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
@@ -198,7 +201,9 @@ def test_reconcile_execution_plan_replaces_outdated_order_when_both_actions_enab
     assert order_request.client_order_id
 
 
-def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_fails() -> None:
+def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_fails() -> (
+    None
+):
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
@@ -226,9 +231,8 @@ def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_
     client.cancel_order.side_effect = RuntimeError("Cancellation failed.")
 
     with pytest.raises(
-        ExceptionGroup,
-         match="One or more lifecycle order cancellations failed."
-         ):
+        ExceptionGroup, match="One or more lifecycle order cancellations failed."
+    ):
         asyncio.run(
             reconcile_execution_plan(
                 execution_plan,
@@ -242,7 +246,9 @@ def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_
     client.create_order.assert_not_awaited()
 
 
-def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_is_disabled() -> None:
+def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_is_disabled() -> (
+    None
+):
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
@@ -389,7 +395,9 @@ def test_reconcile_execution_plan_cancels_before_submitting_replacement() -> Non
     ]
 
 
-def test_reconcile_execution_plan_takes_no_actions_when_resting_order_matches_plan() -> None:
+def test_reconcile_execution_plan_takes_no_actions_when_resting_order_matches_plan() -> (
+    None
+):
     matching_order = Mock(spec=KalshiOrder)
     matching_order.order_id = "matching-order-123"
     matching_order.ticker = "TEST-MARKET"
@@ -491,7 +499,9 @@ def test_reconcile_execution_plan_submits_every_missing_order_when_enabled() -> 
     assert first_request.client_order_id != second_request.client_order_id
 
 
-def test_reconcile_execution_plan_submits_only_missing_order_when_one_order_already_matches() -> None:
+def test_reconcile_execution_plan_submits_only_missing_order_when_one_order_already_matches() -> (
+    None
+):
     matching_order = Mock(spec=KalshiOrder)
     matching_order.order_id = "matching-order-123"
     matching_order.ticker = "TEST-MARKET"
