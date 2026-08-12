@@ -211,11 +211,15 @@ class KalshiClient:
         status: str,
         limit: int = 100,
         cursor: str | None = None,
+        ticker: str | None = None,
     ) -> GetOrdersResponse:
         if self._api_key_id is None or self._private_key is None:
             raise ValueError("API credentials are required to retrieve orders.")
 
         params: dict[str, str | int] = {"status": status, "limit": limit}
+
+        if ticker is not None:
+            params["ticker"] = ticker
 
         if cursor is not None:
             params["cursor"] = cursor

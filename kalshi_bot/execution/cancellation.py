@@ -5,6 +5,7 @@ from kalshi_bot.api.models import CancelOrderResponse, KalshiOrder
 async def retrieve_all_resting_orders(
     *,
     client: KalshiClient,
+    ticker: str,
 ) -> tuple[KalshiOrder, ...]:
     resting_orders: list[KalshiOrder] = []
     seen_cursors: set[str] = set()
@@ -15,6 +16,7 @@ async def retrieve_all_resting_orders(
             status="resting",
             limit=1000,
             cursor=cursor,
+            ticker=ticker,
         )
 
         resting_orders.extend(response.orders)
@@ -34,12 +36,13 @@ async def retrieve_all_resting_orders(
 async def cancel_all_resting_orders(
     *,
     client: KalshiClient,
+    ticker: str,
     order_cancellation_enabled: bool,
 ) -> tuple[CancelOrderResponse, ...]:
     if not order_cancellation_enabled:
         return ()
 
-    resting_orders = await retrieve_all_resting_orders(client=client)
+    resting_orders = await retrieve_all_resting_orders(client=client, ticker=ticker)
     cancellation_responses: list[CancelOrderResponse] = []
     cancellation_errors: list[Exception] = []
 

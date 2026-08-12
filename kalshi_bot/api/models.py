@@ -158,6 +158,7 @@ class KalshiOrder(BaseModel):
     remaining_count_fp: Decimal
     initial_count_fp: Decimal
     client_order_id: str | None = None
+    side: KalshiOrderSide
 
 
 class GetOrdersResponse(BaseModel):

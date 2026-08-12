@@ -803,6 +803,7 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
         assert request.url.params["limit"] == "50"
         assert request.url.params["cursor"] == "previous-page"
         assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
+        assert request.url.params["ticker"] == "TEST-MARKET"
 
         timestamp = request.headers["KALSHI-ACCESS-TIMESTAMP"]
         expected_message = (f"{timestamp}GET/trade-api/v2/portfolio/orders").encode()
@@ -824,6 +825,7 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
                     {
                         "order_id": "order-123",
                         "ticker": "TEST-MARKET",
+                        "side": "bid",
                         "yes_price_dollars": "0.4200",
                         "fill_count_fp": "0.50",
                         "remaining_count_fp": "1.50",
@@ -849,6 +851,7 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
 
             result = await client.get_orders(
                 status="resting",
+                ticker="TEST-MARKET",
                 limit=50,
                 cursor="previous-page",
             )
@@ -859,6 +862,51 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
         assert order.ticker == "TEST-MARKET"
         assert order.remaining_count_fp == Decimal("1.50")
         assert result.cursor == "next-page"
+
+    asyncio.run(run_test())
+
+
+def test_get_orders_parses_order_side() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "orders": [
+                    {
+                        "order_id": "order-123",
+                        "ticker": "TEST-MARKET",
+                        "side": "bid",
+                        "yes_price_dollars": "0.4200",
+                        "fill_count_fp": "0.00",
+                        "remaining_count_fp": "2.00",
+                        "initial_count_fp": "2.00",
+                    }
+                ],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            response = await client.get_orders(status="resting")
+
+        assert response.orders[0].side is KalshiOrderSide.BID
 
     asyncio.run(run_test())
 
@@ -938,6 +986,7 @@ def test_get_order_returns_specific_order() -> None:
                     "order_id": "order-123",
                     "client_order_id": "client-order-123",
                     "ticker": "TEST-MARKET",
+                    "side": "bid",
                     "yes_price_dollars": "0.4200",
                     "fill_count_fp": "0.00",
                     "remaining_count_fp": "1.00",

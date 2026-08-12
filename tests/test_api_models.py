@@ -170,6 +170,7 @@ def test_get_orders_response_parses_fixed_point_values() -> None:
                 {
                     "order_id": "order-123",
                     "ticker": "TEST-MARKET",
+                    "side": "bid",
                     "yes_price_dollars": "0.4200",
                     "fill_count_fp": "0.50",
                     "remaining_count_fp": "1.50",
@@ -200,6 +201,7 @@ def test_get_order_response_parses_order() -> None:
                 "order_id": "order-123",
                 "client_order_id": "client-order-123",
                 "ticker": "TEST-MARKET",
+                "side": "bid",
                 "yes_price_dollars": "0.4200",
                 "fill_count_fp": "0.00",
                 "remaining_count_fp": "1.00",
