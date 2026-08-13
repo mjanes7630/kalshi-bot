@@ -27,6 +27,12 @@ class GetMarketsResponse(BaseModel):
 type OrderbookLevel = tuple[Decimal, Decimal]
 
 
+class GetMarketResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    market: KalshiMarket
+
+
 class KalshiOrderbook(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

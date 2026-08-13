@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -124,3 +125,61 @@ def test_order_cancellation_can_be_enabled_from_environment(
     settings = Settings(_env_file=None)
 
     assert settings.order_cancellation_enabled is True
+
+
+def test_demo_lifecycle_uses_bounded_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("KALSHI_BOT_DEMO_MAX_CYCLES", raising=False)
+    monkeypatch.delenv(
+        "KALSHI_BOT_DEMO_POLL_INTERVAL_SECONDS",
+        raising=False,
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.demo_max_cycles == 1
+    assert settings.demo_poll_interval_seconds == Decimal(0)
+
+
+def test_demo_lifecycle_rejects_non_positive_max_cycles() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            demo_max_cycles=0,
+        )
+
+
+def test_demo_lifecycle_rejects_negative_poll_interval() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            demo_poll_interval_seconds=Decimal("-0.01"),
+        )
+
+
+def test_demo_lifecycle_settings_load_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KALSHI_BOT_DEMO_MARKET_TICKER", "TEST-MARKET")
+    monkeypatch.setenv("KALSHI_BOT_DEMO_QUOTE_QUANTITY", "1.50")
+    monkeypatch.setenv("KALSHI_BOT_DEMO_MAX_CYCLES", "3")
+    monkeypatch.setenv(
+        "KALSHI_BOT_DEMO_POLL_INTERVAL_SECONDS",
+        "2.50",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.demo_market_ticker == "TEST-MARKET"
+    assert settings.demo_quote_quantity == Decimal("1.50")
+    assert settings.demo_max_cycles == 3
+    assert settings.demo_poll_interval_seconds == Decimal("2.50")
+
+
+def test_demo_lifecycle_rejects_non_positive_quote_quantity() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            demo_quote_quantity=Decimal(0),
+        )

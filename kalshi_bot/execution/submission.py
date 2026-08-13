@@ -33,6 +33,7 @@ async def submit_execution_plan(
     *,
     client: KalshiClient,
     order_submission_enabled: bool,
+    client_order_id_prefix: str = "",
 ) -> tuple[CreateOrderResponse, ...]:
     if not order_submission_enabled:
         return ()
@@ -42,7 +43,7 @@ async def submit_execution_plan(
         for order_intent in execution_plan.order_intents:
             order_request = build_create_order_request(
                 order_intent,
-                client_order_id=str(uuid4()),
+                client_order_id=f"{client_order_id_prefix}{uuid4()!s}",
             )
 
             order_response = await client.create_order(order_request)

@@ -5,6 +5,7 @@ from kalshi_bot.api.models import (
     CreateOrderRequest,
     CreateOrderResponse,
     GetMarketOrderbookResponse,
+    GetMarketResponse,
     GetMarketsResponse,
     GetOrderResponse,
     GetOrdersResponse,
@@ -305,3 +306,22 @@ def test_cancel_order_response_parses_fixed_point_values() -> None:
     assert response.client_order_id == "client-order-123"
     assert response.reduced_by == Decimal("1.50")
     assert response.ts_ms == 1785970800000
+
+
+def test_get_market_response_parses_market() -> None:
+    response = GetMarketResponse.model_validate(
+        {
+            "market": {
+                "ticker": "TEST-MARKET",
+                "title": "Test market",
+                "yes_bid_dollars": "0.3700",
+                "yes_ask_dollars": "0.4200",
+                "no_bid_dollars": "0.5800",
+                "no_ask_dollars": "0.6300",
+                "last_price_dollars": "0.4000",
+            }
+        }
+    )
+
+    assert response.market.ticker == "TEST-MARKET"
+    assert response.market.yes_bid_dollars == Decimal("0.3700")

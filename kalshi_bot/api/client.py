@@ -10,6 +10,7 @@ from kalshi_bot.api.models import (
     CreateOrderResponse,
     GetBalanceResponse,
     GetMarketOrderbookResponse,
+    GetMarketResponse,
     GetMarketsResponse,
     GetOrderResponse,
     GetOrdersResponse,
@@ -50,6 +51,17 @@ class KalshiClient:
         response.raise_for_status()
 
         return GetMarketsResponse.model_validate(response.json())
+
+    async def get_market(
+        self,
+        ticker: str,
+    ) -> GetMarketResponse:
+        response = await self._http_client.get(
+            f"markets/{ticker}",
+        )
+        response.raise_for_status()
+
+        return GetMarketResponse.model_validate(response.json())
 
     async def get_trades(
         self,

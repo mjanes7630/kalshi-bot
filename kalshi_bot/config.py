@@ -2,6 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,3 +30,7 @@ class Settings(BaseSettings):
     demo_order_ticker: str | None = None
     demo_order_count: Decimal | None = None
     demo_order_price: Decimal | None = None
+    demo_max_cycles: int = Field(default=1, gt=0)
+    demo_poll_interval_seconds: Decimal = Field(default=Decimal(0), ge=0)
+    demo_market_ticker: str | None = None
+    demo_quote_quantity: Decimal | None = Field(default=None, gt=0)

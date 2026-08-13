@@ -9,7 +9,12 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
-from kalshi_bot.api.models import CreateOrderRequest, GetOrderResponse, KalshiOrderSide
+from kalshi_bot.api.models import (
+    CreateOrderRequest,
+    GetMarketResponse,
+    GetOrderResponse,
+    KalshiOrderSide,
+)
 
 
 def test_get_markets_sends_request_and_parses_response() -> None:
@@ -76,6 +81,43 @@ def test_get_markets_raises_for_unsuccessful_response() -> None:
                 await client.get_markets()
 
         assert error.value.response.status_code == 503
+
+    asyncio.run(run_test())
+
+
+def test_get_market_sends_request_and_parses_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/trade-api/v2/markets/TEST-MARKET"
+
+        return httpx.Response(
+            200,
+            json={
+                "market": {
+                    "ticker": "TEST-MARKET",
+                    "title": "Test market",
+                    "yes_bid_dollars": "0.3700",
+                    "yes_ask_dollars": "0.4200",
+                    "no_bid_dollars": "0.5800",
+                    "no_ask_dollars": "0.6300",
+                    "last_price_dollars": "0.4000",
+                }
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            result = await client.get_market("TEST-MARKET")
+
+        assert isinstance(result, GetMarketResponse)
+        assert result.market.ticker == "TEST-MARKET"
 
     asyncio.run(run_test())
 
@@ -1068,6 +1110,30 @@ def test_get_order_raises_for_unsuccessful_response() -> None:
 
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.get_order("order-123")
+
+        assert error.value.response.status_code == 404
+
+    asyncio.run(run_test())
+
+
+def test_get_market_raises_for_unsuccessful_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            404,
+            json={"error": "Market not found"},
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                await client.get_market("UNKNOWN-MARKET")
 
         assert error.value.response.status_code == 404
 

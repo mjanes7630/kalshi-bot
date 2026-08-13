@@ -557,3 +557,54 @@ def test_reconcile_execution_plan_submits_only_missing_order_when_one_order_alre
     assert order_request.price == Decimal("0.4200")
     assert order_request.count == Decimal("3.00")
     assert order_request.client_order_id
+
+
+def test_reconcile_execution_plan_does_not_cancel_unowned_resting_order() -> None:
+    order_intent = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.BUY,
+        price=Decimal("0.4200"),
+        quantity=Decimal("2.00"),
+    )
+    execution_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(order_intent,),
+    )
+
+    unowned_order = Mock(spec=KalshiOrder)
+    unowned_order.order_id = "manual-order-123"
+    unowned_order.client_order_id = "manual-order-id"
+    unowned_order.ticker = "TEST-MARKET"
+    unowned_order.side = KalshiOrderSide.BID
+    unowned_order.yes_price_dollars = Decimal("0.4100")
+    unowned_order.remaining_count_fp = Decimal("2.00")
+
+    orders_response = Mock(spec=GetOrdersResponse)
+    orders_response.orders = [unowned_order]
+    orders_response.cursor = ""
+
+    client = AsyncMock(spec=KalshiClient)
+    client.get_orders.return_value = orders_response
+
+    decision = asyncio.run(
+        reconcile_execution_plan(
+            execution_plan,
+            client=client,
+            client_order_id_prefix="kbot-session-1234-",
+            order_submission_enabled=True,
+            order_cancellation_enabled=True,
+        )
+    )
+
+    assert decision == ReconciliationDecision(
+        order_ids_to_cancel=(),
+        order_intents_to_submit=(order_intent,),
+    )
+    client.cancel_order.assert_not_awaited()
+    client.create_order.assert_awaited_once()
+
+    submitted_request = client.create_order.await_args.args[0]
+
+    assert submitted_request.client_order_id.startswith(
+        "kbot-session-1234-",
+    )

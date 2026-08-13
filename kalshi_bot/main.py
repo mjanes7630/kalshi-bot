@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 import httpx
 import structlog
@@ -8,6 +9,7 @@ import structlog
 from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.config import Settings
+from kalshi_bot.execution.cancellation import retrieve_all_resting_orders
 from kalshi_bot.execution.lifecycle import reconcile_execution_plan
 from kalshi_bot.execution.planner import create_execution_plan
 from kalshi_bot.logging_config import configure_logging
@@ -39,12 +41,22 @@ def display_trade_prices(prices: list[Decimal], midpoint: Decimal) -> None:
         )
 
 
-async def retrieve_demo_api_data(settings: Settings) -> None:
+async def retrieve_demo_api_data(
+    settings: Settings,
+    *,
+    client_order_id_prefix: str | None = None,
+) -> None:
     if settings.api_key_id is None:
         raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
 
     if settings.private_key_path is None:
         raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
+
+    if settings.demo_market_ticker is None:
+        raise ValueError("KALSHI_BOT_DEMO_MARKET_TICKER is required.")
+
+    if settings.demo_quote_quantity is None:
+        raise ValueError("KALSHI_BOT_DEMO_QUOTE_QUANTITY is required.")
 
     private_key = load_private_key(settings.private_key_path)
 
@@ -58,12 +70,11 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             private_key=private_key,
         )
 
-        markets_response = await client.get_markets(limit=1)
+        market_response = await client.get_market(
+            settings.demo_market_ticker,
+        )
 
-        if not markets_response.markets:
-            raise ValueError("No demo markets were returned.")
-
-        market = markets_response.markets[0]
+        market = market_response.market
 
         orderbook_response = await client.get_market_orderbook(
             ticker=market.ticker,
@@ -82,8 +93,8 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             observed_at=datetime.now(UTC),
         )
 
-        quote_quantity = Decimal("2.00")
-        max_quote_quantity = Decimal("2.00")
+        quote_quantity = settings.demo_quote_quantity
+        max_quote_quantity = settings.demo_quote_quantity
 
         quote_decision = decide_quotes(
             snapshot,
@@ -105,6 +116,7 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
             client=client,
             order_submission_enabled=settings.order_submission_enabled,
             order_cancellation_enabled=settings.order_cancellation_enabled,
+            client_order_id_prefix=client_order_id_prefix,
         )
 
         balance = await client.get_balance()
@@ -189,6 +201,70 @@ async def retrieve_demo_api_data(settings: Settings) -> None:
     )
 
 
+async def cancel_demo_lifecycle_orders(
+    settings: Settings,
+    *,
+    client_order_id_prefix: str,
+) -> None:
+    if not settings.order_cancellation_enabled:
+        return
+
+    if settings.demo_market_ticker is None:
+        return
+
+    if settings.api_key_id is None:
+        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
+
+    if settings.private_key_path is None:
+        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
+
+    private_key = load_private_key(settings.private_key_path)
+
+    async with httpx.AsyncClient(
+        base_url=KALSHI_API_BASE_URL,
+        timeout=10.0,
+    ) as http_client:
+        client = KalshiClient(
+            http_client,
+            api_key_id=settings.api_key_id,
+            private_key=private_key,
+        )
+
+        resting_orders = await retrieve_all_resting_orders(
+            client=client,
+            ticker=settings.demo_market_ticker,
+        )
+
+        for order in resting_orders:
+            if order.client_order_id is not None and order.client_order_id.startswith(
+                client_order_id_prefix
+            ):
+                await client.cancel_order(order.order_id)
+
+
+async def run_demo_lifecycle(settings: Settings) -> None:
+    client_order_id_prefix = f"kbot-{uuid4().hex[:16]}-"
+
+    try:
+        for cycle_number in range(settings.demo_max_cycles):
+            await retrieve_demo_api_data(
+                settings,
+                client_order_id_prefix=client_order_id_prefix,
+            )
+
+            is_final_cycle = cycle_number == settings.demo_max_cycles - 1
+
+            if not is_final_cycle:
+                await asyncio.sleep(
+                    float(settings.demo_poll_interval_seconds),
+                )
+    finally:
+        await cancel_demo_lifecycle_orders(
+            settings,
+            client_order_id_prefix=client_order_id_prefix,
+        )
+
+
 def main() -> None:
     settings = Settings()
     configure_logging(settings)
@@ -239,7 +315,7 @@ def main() -> None:
     display_trade_prices(market.recent_trade_prices, midpoint)
 
     try:
-        asyncio.run(retrieve_demo_api_data(settings))
+        asyncio.run(run_demo_lifecycle(settings))
     except (OSError, ValueError, TypeError, httpx.HTTPError, ExceptionGroup) as error:
         logger.error(
             "demo_api_data_retrieval_failed",

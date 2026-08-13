@@ -14,11 +14,20 @@ async def reconcile_execution_plan(
     client: KalshiClient,
     order_submission_enabled: bool,
     order_cancellation_enabled: bool,
+    client_order_id_prefix: str | None = None,
 ) -> ReconciliationDecision:
     resting_orders = await retrieve_all_resting_orders(
         client=client,
         ticker=execution_plan.ticker,
     )
+
+    if client_order_id_prefix is not None:
+        resting_orders = tuple(
+            order
+            for order in resting_orders
+            if order.client_order_id is not None
+            and order.client_order_id.startswith(client_order_id_prefix)
+        )
 
     decision = reconcile_orders(
         desired_orders=execution_plan.order_intents,
@@ -52,6 +61,7 @@ async def reconcile_execution_plan(
             reconciliation_plan,
             client=client,
             order_submission_enabled=True,
+            client_order_id_prefix=client_order_id_prefix or "",
         )
 
     return decision

@@ -18,7 +18,7 @@ def test_main_logs_lifecycle_cancellation_exception_group() -> None:
         patch("kalshi_bot.main.Settings", return_value=settings),
         patch("kalshi_bot.main.configure_logging"),
         patch(
-            "kalshi_bot.main.retrieve_demo_api_data",
+            "kalshi_bot.main.run_demo_lifecycle",
             new=AsyncMock(side_effect=lifecycle_error),
         ),
         patch("kalshi_bot.main.logger") as logger,
