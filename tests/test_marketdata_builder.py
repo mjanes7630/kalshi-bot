@@ -21,6 +21,7 @@ def market() -> KalshiMarket:
     return KalshiMarket(
         ticker="TEST-MARKET",
         title="Test market",
+        status="open",
         yes_bid_dollars=Decimal("0.4200"),
         yes_ask_dollars=Decimal("0.4400"),
         no_bid_dollars=Decimal("0.5600"),
@@ -101,6 +102,7 @@ def test_builds_snapshot_metadata_and_matching_trades(
 
     assert snapshot.ticker == "TEST-MARKET"
     assert snapshot.title == "Test market"
+    assert snapshot.status == "open"
     assert snapshot.last_price == Decimal("0.4300")
     assert snapshot.observed_at == OBSERVED_AT
     assert snapshot.recent_trades == (

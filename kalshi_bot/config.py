@@ -34,3 +34,6 @@ class Settings(BaseSettings):
     demo_poll_interval_seconds: Decimal = Field(default=Decimal(0), ge=0)
     demo_market_ticker: str | None = None
     demo_quote_quantity: Decimal | None = Field(default=None, gt=0)
+    demo_max_observed_age_seconds: int = Field(default=30, gt=0)
+    demo_max_market_exposure_dollars: Decimal = Field(default=Decimal("5.00"), gt=0)
+    demo_min_available_balance_dollars: Decimal = Field(default=Decimal("10.00"), gt=0)

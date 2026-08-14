@@ -29,6 +29,7 @@ def test_kalshi_market_parses_fixed_point_price_strings() -> None:
             "no_ask_dollars": "0.6300",
             "last_price_dollars": "0.4000",
             "event_ticker": "TEST-EVENT",
+            "status": "open",
         }
     )
 
@@ -37,6 +38,7 @@ def test_kalshi_market_parses_fixed_point_price_strings() -> None:
     assert market.no_bid_dollars == Decimal("0.5800")
     assert market.no_ask_dollars == Decimal("0.6300")
     assert market.last_price_dollars == Decimal("0.4000")
+    assert market.status == "open"
 
 
 def test_get_markets_response_parses_markets_and_cursor() -> None:
@@ -51,6 +53,7 @@ def test_get_markets_response_parses_markets_and_cursor() -> None:
                     "no_bid_dollars": "0.5800",
                     "no_ask_dollars": "0.6300",
                     "last_price_dollars": "0.4000",
+                    "status": "open",
                 }
             ],
             "cursor": "next-page-token",
@@ -319,6 +322,7 @@ def test_get_market_response_parses_market() -> None:
                 "no_bid_dollars": "0.5800",
                 "no_ask_dollars": "0.6300",
                 "last_price_dollars": "0.4000",
+                "status": "open",
             }
         }
     )

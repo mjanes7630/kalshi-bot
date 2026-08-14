@@ -15,6 +15,7 @@ class KalshiMarket(BaseModel):
     no_bid_dollars: Decimal
     no_ask_dollars: Decimal
     last_price_dollars: Decimal
+    status: str
 
 
 class GetMarketsResponse(BaseModel):

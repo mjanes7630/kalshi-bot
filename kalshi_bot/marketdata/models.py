@@ -24,6 +24,7 @@ class MarketSnapshot:
 
     ticker: str
     title: str
+    status: str
     last_price: Decimal
     yes_bids: tuple[OrderBookLevel, ...]
     yes_asks: tuple[OrderBookLevel, ...]

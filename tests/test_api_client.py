@@ -36,6 +36,7 @@ def test_get_markets_sends_request_and_parses_response() -> None:
                         "no_bid_dollars": "0.5800",
                         "no_ask_dollars": "0.6300",
                         "last_price_dollars": "0.4000",
+                        "status": "open",
                     }
                 ],
                 "cursor": "next-page-token",
@@ -101,6 +102,7 @@ def test_get_market_sends_request_and_parses_response() -> None:
                     "no_bid_dollars": "0.5800",
                     "no_ask_dollars": "0.6300",
                     "last_price_dollars": "0.4000",
+                    "status": "open",
                 }
             },
         )

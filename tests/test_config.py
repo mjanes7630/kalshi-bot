@@ -135,11 +135,26 @@ def test_demo_lifecycle_uses_bounded_defaults(
         "KALSHI_BOT_DEMO_POLL_INTERVAL_SECONDS",
         raising=False,
     )
+    monkeypatch.delenv(
+        "KALSHI_BOT_DEMO_MAX_OBSERVED_AGE_SECONDS",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "KALSHI_BOT_DEMO_MAX_MARKET_EXPOSURE_DOLLARS",
+        raising=False,
+    )
+    monkeypatch.delenv(
+        "KALSHI_BOT_DEMO_MIN_AVAILABLE_BALANCE_DOLLARS",
+        raising=False,
+    )
 
     settings = Settings(_env_file=None)
 
     assert settings.demo_max_cycles == 1
     assert settings.demo_poll_interval_seconds == Decimal(0)
+    assert settings.demo_max_observed_age_seconds == 30
+    assert settings.demo_max_market_exposure_dollars == Decimal("5.00")
+    assert settings.demo_min_available_balance_dollars == Decimal("10.00")
 
 
 def test_demo_lifecycle_rejects_non_positive_max_cycles() -> None:

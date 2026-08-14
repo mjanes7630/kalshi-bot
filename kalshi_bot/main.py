@@ -101,9 +101,36 @@ async def retrieve_demo_api_data(
             quote_quantity=quote_quantity,
         )
 
+        positions = await client.get_positions(ticker=market.ticker, limit=10)
+
+        market_position = next(
+            (
+                position
+                for position in positions.market_positions
+                if position.ticker == market.ticker
+            ),
+            None,
+        )
+
+        market_exposure_dollars = (
+            market_position.market_exposure_dollars
+            if market_position is not None
+            else Decimal("0.00")
+        )
+
+        balance = await client.get_balance()
+
         risk_decision = evaluate_quote_risk(
             quote_decision,
             max_quote_quantity=max_quote_quantity,
+            market_status=snapshot.status,
+            observed_at=snapshot.observed_at,
+            now=datetime.now(UTC),
+            max_observed_age_seconds=settings.demo_max_observed_age_seconds,
+            market_exposure_dollars=market_exposure_dollars,
+            max_market_exposure_dollars=settings.demo_max_market_exposure_dollars,
+            available_balance_dollars=balance.balance_dollars,
+            minimum_available_balance_dollars=settings.demo_min_available_balance_dollars,
         )
 
         execution_plan = create_execution_plan(
@@ -118,9 +145,6 @@ async def retrieve_demo_api_data(
             order_cancellation_enabled=settings.order_cancellation_enabled,
             client_order_id_prefix=client_order_id_prefix,
         )
-
-        balance = await client.get_balance()
-        positions = await client.get_positions(limit=10)
 
     best_yes_bid = snapshot.best_yes_bid
     best_yes_ask = snapshot.best_yes_ask

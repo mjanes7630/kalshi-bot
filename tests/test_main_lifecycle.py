@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -23,6 +23,9 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     settings.order_cancellation_enabled = False
     settings.demo_market_ticker = "TEST-MARKET"
     settings.demo_quote_quantity = Decimal("2.00")
+    settings.demo_max_observed_age_seconds = 30
+    settings.demo_max_market_exposure_dollars = Decimal("5.00")
+    settings.demo_min_available_balance_dollars = Decimal("10.00")
 
     market = Mock()
     market.ticker = "TEST-MARKET"
@@ -45,10 +48,23 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     http_client = AsyncMock()
     http_client.__aenter__.return_value = http_client
 
+    market_position = Mock()
+    market_position.ticker = "TEST-MARKET"
+    market_position.market_exposure_dollars = Decimal("1.25")
+
+    positions_response = Mock()
+    positions_response.market_positions = [market_position]
+    positions_response.event_positions = []
+
+    balance_response = Mock()
+    balance_response.balance_dollars = Decimal("100.00")
+
     client = AsyncMock(spec=KalshiClient)
     client.get_market.return_value = market_response
     client.get_market_orderbook.return_value = Mock()
     client.get_trades.return_value = Mock()
+    client.get_positions.return_value = positions_response
+    client.get_balance.return_value = balance_response
 
     with (
         patch("kalshi_bot.main.load_private_key"),
@@ -59,7 +75,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
             return_value=snapshot,
         ),
         patch("kalshi_bot.main.decide_quotes") as decide_quotes_mock,
-        patch("kalshi_bot.main.evaluate_quote_risk"),
+        patch("kalshi_bot.main.evaluate_quote_risk") as evaluate_quote_risk_mock,
         patch(
             "kalshi_bot.main.create_execution_plan",
             return_value=execution_plan,
@@ -71,12 +87,31 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     ):
         asyncio.run(retrieve_demo_api_data(settings))
 
+    client.get_balance.assert_awaited_once_with()
     client.get_market.assert_awaited_once_with("TEST-MARKET")
+    client.get_positions.assert_awaited_once_with(
+        ticker="TEST-MARKET",
+        limit=10,
+    )
     client.get_markets.assert_not_awaited()
     decide_quotes_mock.assert_called_once_with(
         snapshot,
         quote_quantity=Decimal("2.00"),
     )
+
+    evaluate_quote_risk_mock.assert_called_once_with(
+        decide_quotes_mock.return_value,
+        max_quote_quantity=Decimal("2.00"),
+        market_status=snapshot.status,
+        observed_at=snapshot.observed_at,
+        now=ANY,
+        max_observed_age_seconds=30,
+        market_exposure_dollars=Decimal("1.25"),
+        max_market_exposure_dollars=Decimal("5.00"),
+        available_balance_dollars=Decimal("100.00"),
+        minimum_available_balance_dollars=Decimal("10.00"),
+    )
+
     reconcile_mock.assert_awaited_once_with(
         execution_plan,
         client=client,

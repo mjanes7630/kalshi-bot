@@ -18,6 +18,7 @@ def snapshot() -> MarketSnapshot:
     return MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
+        status="open",
         last_price=Decimal("0.4300"),
         yes_bids=(
             OrderBookLevel(

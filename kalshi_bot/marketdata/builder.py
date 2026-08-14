@@ -58,6 +58,7 @@ def build_market_snapshot(
 
     return MarketSnapshot(
         ticker=market.ticker,
+        status=market.status,
         title=market.title,
         last_price=market.last_price_dollars,
         yes_bids=yes_bids,
