@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from kalshi_bot.api.models import KalshiOrder, KalshiOrderSide
-from kalshi_bot.execution.models import OrderIntent, OrderSide
+from kalshi_bot.execution.models import OrderIntent, OrderSide, TimeInForce
 from kalshi_bot.execution.reconciliation import (
     ReconciliationDecision,
     reconcile_orders,
@@ -244,3 +244,33 @@ def test_reconcile_orders_rejects_unmatched_resting_order_without_order_id() -> 
             desired_orders=(),
             resting_orders=(resting_bid,),
         )
+
+
+def test_reconcile_orders_replaces_resting_quote_with_inventory_flattening_order() -> (
+    None
+):
+    resting_order = Mock(spec=KalshiOrder)
+    resting_order.order_id = "resting-order-123"
+    resting_order.ticker = "TEST-MARKET"
+    resting_order.side = KalshiOrderSide.ASK
+    resting_order.yes_price_dollars = Decimal("0.4200")
+    resting_order.remaining_count_fp = Decimal("2.00")
+
+    flattening_order = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.SELL,
+        price=Decimal("0.4200"),
+        quantity=Decimal("2.00"),
+        post_only=False,
+        time_in_force=TimeInForce.IMMEDIATE_OR_CANCEL,
+    )
+
+    decision = reconcile_orders(
+        desired_orders=(flattening_order,),
+        resting_orders=(resting_order,),
+    )
+
+    assert decision == ReconciliationDecision(
+        order_ids_to_cancel=("resting-order-123",),
+        order_intents_to_submit=(flattening_order,),
+    )

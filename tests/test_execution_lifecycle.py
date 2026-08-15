@@ -11,9 +11,15 @@ from kalshi_bot.api.models import (
     GetOrdersResponse,
     KalshiOrder,
     KalshiOrderSide,
+    KalshiTimeInForce,
 )
 from kalshi_bot.execution.lifecycle import reconcile_execution_plan
-from kalshi_bot.execution.models import ExecutionPlan, OrderIntent, OrderSide
+from kalshi_bot.execution.models import (
+    ExecutionPlan,
+    OrderIntent,
+    OrderSide,
+    TimeInForce,
+)
 from kalshi_bot.execution.reconciliation import ReconciliationDecision
 
 
@@ -608,3 +614,62 @@ def test_reconcile_execution_plan_does_not_cancel_unowned_resting_order() -> Non
     assert submitted_request.client_order_id.startswith(
         "kbot-session-1234-",
     )
+
+
+def test_reconcile_execution_plan_cancels_resting_quote_before_submitting_flattening_order() -> (
+    None
+):
+    resting_order = Mock(spec=KalshiOrder)
+    resting_order.order_id = "resting-order-123"
+    resting_order.ticker = "TEST-MARKET"
+    resting_order.side = KalshiOrderSide.ASK
+    resting_order.yes_price_dollars = Decimal("0.4200")
+    resting_order.remaining_count_fp = Decimal("2.00")
+
+    flattening_order = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.SELL,
+        price=Decimal("0.4200"),
+        quantity=Decimal("2.00"),
+        post_only=False,
+        time_in_force=TimeInForce.IMMEDIATE_OR_CANCEL,
+    )
+    execution_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(flattening_order,),
+    )
+
+    orders_response = Mock(spec=GetOrdersResponse)
+    orders_response.orders = [resting_order]
+    orders_response.cursor = ""
+
+    actions: list[str] = []
+
+    async def cancel_order(order_id: str) -> Mock:
+        actions.append(f"cancel:{order_id}")
+        return Mock(spec=CancelOrderResponse)
+
+    async def create_order(order_request: CreateOrderRequest) -> Mock:
+        actions.append("submit")
+        assert order_request.post_only is False
+        assert order_request.time_in_force is KalshiTimeInForce.IMMEDIATE_OR_CANCEL
+        return Mock()
+
+    client = AsyncMock(spec=KalshiClient)
+    client.get_orders.return_value = orders_response
+    client.cancel_order.side_effect = cancel_order
+    client.create_order.side_effect = create_order
+
+    asyncio.run(
+        reconcile_execution_plan(
+            execution_plan,
+            client=client,
+            order_submission_enabled=True,
+            order_cancellation_enabled=True,
+        )
+    )
+
+    assert actions == [
+        "cancel:resting-order-123",
+        "submit",
+    ]

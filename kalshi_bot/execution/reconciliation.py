@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from kalshi_bot.api.models import KalshiOrder, KalshiOrderSide
-from kalshi_bot.execution.models import OrderIntent, OrderSide
+from kalshi_bot.execution.models import OrderIntent, OrderSide, TimeInForce
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,9 @@ def reconcile_orders(
             (
                 resting_order
                 for resting_order in unmatched_resting_orders
-                if resting_order.ticker == desired_order.ticker
+                if desired_order.post_only
+                and desired_order.time_in_force is TimeInForce.GOOD_TILL_CANCELED
+                and resting_order.ticker == desired_order.ticker
                 and resting_order.side is expected_side
                 and resting_order.yes_price_dollars == desired_order.price
                 and resting_order.remaining_count_fp == desired_order.quantity

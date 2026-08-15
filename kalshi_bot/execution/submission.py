@@ -5,8 +5,14 @@ from kalshi_bot.api.models import (
     CreateOrderRequest,
     CreateOrderResponse,
     KalshiOrderSide,
+    KalshiTimeInForce,
 )
-from kalshi_bot.execution.models import ExecutionPlan, OrderIntent, OrderSide
+from kalshi_bot.execution.models import (
+    ExecutionPlan,
+    OrderIntent,
+    OrderSide,
+    TimeInForce,
+)
 
 
 def build_create_order_request(
@@ -19,12 +25,19 @@ def build_create_order_request(
         OrderSide.SELL: KalshiOrderSide.ASK,
     }
 
+    time_in_force_mapping = {
+        TimeInForce.IMMEDIATE_OR_CANCEL: KalshiTimeInForce.IMMEDIATE_OR_CANCEL,
+        TimeInForce.GOOD_TILL_CANCELED: KalshiTimeInForce.GOOD_TILL_CANCELED,
+    }
+
     return CreateOrderRequest(
         ticker=order_intent.ticker,
         client_order_id=client_order_id,
         side=side_mapping[order_intent.side],
         count=order_intent.quantity,
         price=order_intent.price,
+        post_only=order_intent.post_only,
+        time_in_force=time_in_force_mapping[order_intent.time_in_force],
     )
 
 

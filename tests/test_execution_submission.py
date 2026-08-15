@@ -10,8 +10,14 @@ from kalshi_bot.api.models import (
     CreateOrderRequest,
     CreateOrderResponse,
     KalshiOrderSide,
+    KalshiTimeInForce,
 )
-from kalshi_bot.execution.models import ExecutionPlan, OrderIntent, OrderSide
+from kalshi_bot.execution.models import (
+    ExecutionPlan,
+    OrderIntent,
+    OrderSide,
+    TimeInForce,
+)
 from kalshi_bot.execution.submission import (
     build_create_order_request,
     submit_execution_plan,
@@ -229,3 +235,31 @@ def test_submit_execution_plan_reports_all_cleanup_failures() -> None:
         call("sell-order-456"),
         call("buy-order-123"),
     ]
+
+
+def test_build_create_order_request_allows_inventory_flattening_order_to_take_liquidity() -> (
+    None
+):
+    order_intent = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.BUY,
+        price=Decimal("0.4400"),
+        quantity=Decimal("2.00"),
+        post_only=False,
+        time_in_force=TimeInForce.IMMEDIATE_OR_CANCEL,
+    )
+
+    order_request = build_create_order_request(
+        order_intent,
+        client_order_id="client-order-123",
+    )
+
+    assert order_request == CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4400"),
+        post_only=False,
+        time_in_force=KalshiTimeInForce.IMMEDIATE_OR_CANCEL,
+    )

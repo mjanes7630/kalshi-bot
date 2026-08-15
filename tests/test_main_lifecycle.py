@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
@@ -6,7 +7,12 @@ import pytest
 
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.config import Settings
-from kalshi_bot.execution.models import ExecutionPlan
+from kalshi_bot.execution.models import (
+    ExecutionPlan,
+    OrderIntent,
+    OrderSide,
+    TimeInForce,
+)
 from kalshi_bot.execution.reconciliation import ReconciliationDecision
 from kalshi_bot.main import (
     cancel_demo_lifecycle_orders,
@@ -51,6 +57,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     market_position = Mock()
     market_position.ticker = "TEST-MARKET"
     market_position.market_exposure_dollars = Decimal("1.25")
+    market_position.position_fp = Decimal(0)
 
     positions_response = Mock()
     positions_response.market_positions = [market_position]
@@ -310,3 +317,108 @@ def test_cancel_demo_lifecycle_orders_cancels_only_owned_orders() -> None:
         ticker="TEST-MARKET",
     )
     client.cancel_order.assert_awaited_once_with("owned-order-123")
+
+
+def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
+    settings = Mock(spec=Settings)
+    settings.api_key_id = "test-key-id"
+    settings.private_key_path = Mock()
+    settings.order_submission_enabled = True
+    settings.order_cancellation_enabled = True
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_quote_quantity = Decimal("2.00")
+    settings.demo_max_observed_age_seconds = 30
+    settings.demo_max_market_exposure_dollars = Decimal("5.00")
+    settings.demo_min_available_balance_dollars = Decimal("10.00")
+
+    market = Mock()
+    market.ticker = "TEST-MARKET"
+
+    market_response = Mock()
+    market_response.market = market
+
+    snapshot = MagicMock()
+    snapshot.ticker = "TEST-MARKET"
+    snapshot.status = "open"
+    snapshot.observed_at = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+
+    market_position = Mock()
+    market_position.ticker = "TEST-MARKET"
+    market_position.position_fp = Decimal("2.00")
+    market_position.market_exposure_dollars = Decimal("1.25")
+
+    positions_response = Mock()
+    positions_response.market_positions = [market_position]
+    positions_response.event_positions = []
+
+    balance_response = Mock()
+    balance_response.balance_dollars = Decimal("100.00")
+
+    flattening_intent = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.SELL,
+        price=Decimal("0.4200"),
+        quantity=Decimal("2.00"),
+        post_only=False,
+        time_in_force=TimeInForce.IMMEDIATE_OR_CANCEL,
+    )
+    flattening_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(flattening_intent,),
+    )
+
+    reconciliation_decision = ReconciliationDecision(
+        order_ids_to_cancel=(),
+        order_intents_to_submit=(),
+    )
+
+    http_client = AsyncMock()
+    http_client.__aenter__.return_value = http_client
+
+    client = AsyncMock(spec=KalshiClient)
+    client.get_market.return_value = market_response
+    client.get_market_orderbook.return_value = Mock()
+    client.get_trades.return_value = Mock()
+    client.get_positions.return_value = positions_response
+    client.get_balance.return_value = balance_response
+
+    with (
+        patch("kalshi_bot.main.load_private_key"),
+        patch("kalshi_bot.main.httpx.AsyncClient", return_value=http_client),
+        patch("kalshi_bot.main.KalshiClient", return_value=client),
+        patch(
+            "kalshi_bot.main.build_market_snapshot",
+            return_value=snapshot,
+        ),
+        patch("kalshi_bot.main.decide_quotes"),
+        patch("kalshi_bot.main.evaluate_quote_risk"),
+        patch("kalshi_bot.main.create_execution_plan"),
+        patch(
+            "kalshi_bot.main.create_flattening_order_intent",
+            return_value=flattening_intent,
+        ) as create_flattening_intent_mock,
+        patch(
+            "kalshi_bot.main.reconcile_execution_plan",
+            new=AsyncMock(return_value=reconciliation_decision),
+        ) as reconcile_mock,
+        patch(
+            "kalshi_bot.main.can_flatten_inventory",
+            return_value=True,
+        ) as can_flatten_inventory_mock,
+    ):
+        asyncio.run(retrieve_demo_api_data(settings))
+
+    create_flattening_intent_mock.assert_called_once()
+    reconcile_mock.assert_awaited_once_with(
+        flattening_plan,
+        client=client,
+        order_submission_enabled=True,
+        order_cancellation_enabled=True,
+        client_order_id_prefix=None,
+    )
+    can_flatten_inventory_mock.assert_called_once_with(
+        market_status="open",
+        observed_at=snapshot.observed_at,
+        now=ANY,
+        max_observed_age_seconds=30,
+    )

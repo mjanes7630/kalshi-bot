@@ -10,7 +10,13 @@ from kalshi_bot.api.auth import load_private_key
 from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
 from kalshi_bot.config import Settings
 from kalshi_bot.execution.cancellation import retrieve_all_resting_orders
+from kalshi_bot.execution.inventory import (
+    can_flatten_inventory,
+    create_flattening_order_intent,
+    decide_inventory_action,
+)
 from kalshi_bot.execution.lifecycle import reconcile_execution_plan
+from kalshi_bot.execution.models import ExecutionPlan
 from kalshi_bot.execution.planner import create_execution_plan
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
@@ -120,12 +126,13 @@ async def retrieve_demo_api_data(
 
         balance = await client.get_balance()
 
+        now = datetime.now(UTC)
         risk_decision = evaluate_quote_risk(
             quote_decision,
             max_quote_quantity=max_quote_quantity,
             market_status=snapshot.status,
             observed_at=snapshot.observed_at,
-            now=datetime.now(UTC),
+            now=now,
             max_observed_age_seconds=settings.demo_max_observed_age_seconds,
             market_exposure_dollars=market_exposure_dollars,
             max_market_exposure_dollars=settings.demo_max_market_exposure_dollars,
@@ -137,6 +144,29 @@ async def retrieve_demo_api_data(
             quote_decision,
             risk_decision,
         )
+
+        position = (
+            market_position.position_fp
+            if market_position is not None
+            else Decimal("0.00")
+        )
+        inventory_action = decide_inventory_action(position)
+
+        if inventory_action is not None and can_flatten_inventory(
+            market_status=snapshot.status,
+            observed_at=snapshot.observed_at,
+            now=now,
+            max_observed_age_seconds=settings.demo_max_observed_age_seconds,
+        ):
+            flattening_order_intent = create_flattening_order_intent(
+                ticker=market.ticker,
+                inventory_action=inventory_action,
+                snapshot=snapshot,
+            )
+            execution_plan = ExecutionPlan(
+                ticker=market.ticker,
+                order_intents=(flattening_order_intent,),
+            )
 
         reconciliation_decision = await reconcile_execution_plan(
             execution_plan,
