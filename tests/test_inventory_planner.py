@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.execution.inventory import (
     InventoryAction,
     create_flattening_order_intent,
@@ -15,7 +16,7 @@ def test_create_flattening_order_intent_sells_long_yes_at_best_yes_bid() -> None
     snapshot = MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4200"),
         yes_bids=(
             OrderBookLevel(
@@ -53,7 +54,7 @@ def test_create_flattening_order_intent_buys_short_yes_at_best_yes_ask() -> None
     snapshot = MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4200"),
         yes_bids=(),
         yes_asks=(
@@ -91,7 +92,7 @@ def test_create_flattening_order_intent_rejects_long_yes_without_best_yes_bid() 
     snapshot = MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4200"),
         yes_bids=(),
         yes_asks=(),
@@ -119,7 +120,7 @@ def test_create_flattening_order_intent_rejects_ticker_that_differs_from_snapsho
     snapshot = MarketSnapshot(
         ticker="MARKET-A",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4200"),
         yes_bids=(
             OrderBookLevel(
@@ -147,7 +148,7 @@ def test_create_flattening_order_intent_rejects_closed_market() -> None:
     snapshot = MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="closed",
+        status=KalshiMarketStatus.CLOSED,
         last_price=Decimal("0.4200"),
         yes_bids=(
             OrderBookLevel(
@@ -175,7 +176,7 @@ def test_create_flattening_order_intent_rejects_non_positive_quantity() -> None:
     snapshot = MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4200"),
         yes_bids=(
             OrderBookLevel(

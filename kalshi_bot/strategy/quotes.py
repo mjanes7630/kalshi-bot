@@ -20,6 +20,14 @@ def decide_quotes(
             reason=QuoteDecisionReason.INCOMPLETE_BOOK,
         )
 
+    if best_yes_bid.price >= best_yes_ask.price:
+        return QuoteDecision(
+            ticker=snapshot.ticker,
+            yes_bid=None,
+            yes_ask=None,
+            reason=QuoteDecisionReason.CROSSED_BOOK,
+        )
+
     return QuoteDecision(
         ticker=snapshot.ticker,
         yes_bid=QuoteProposal(

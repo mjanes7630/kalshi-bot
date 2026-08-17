@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.marketdata.models import (
     MarketSnapshot,
     MarketTrade,
@@ -16,7 +17,7 @@ def snapshot() -> MarketSnapshot:
     return MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4300"),
         yes_bids=(
             OrderBookLevel(Decimal("0.4200"), Decimal("13.00")),

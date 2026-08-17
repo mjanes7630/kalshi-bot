@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.risk.checks import (
     calculate_quote_reservation_dollars,
     evaluate_quote_risk,
@@ -42,7 +43,7 @@ def test_approves_complete_quote_at_size_limit(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -73,7 +74,7 @@ def test_rejects_quote_above_size_limit(
     risk_decision = evaluate_quote_risk(
         oversized_quote,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -98,7 +99,7 @@ def test_rejects_incomplete_quote(
     risk_decision = evaluate_quote_risk(
         incomplete_quote,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -126,7 +127,7 @@ def test_rejects_yes_bid_above_size_limit(
     risk_decision = evaluate_quote_risk(
         oversized_quote,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -151,7 +152,7 @@ def test_rejects_quote_missing_yes_bid(
     risk_decision = evaluate_quote_risk(
         incomplete_quote,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -183,7 +184,7 @@ def test_rejects_non_positive_max_quote_quantity(
         evaluate_quote_risk(
             quote_decision,
             max_quote_quantity=invalid_max_quote_quantity,
-            market_status="open",
+            market_status=KalshiMarketStatus.ACTIVE,
             observed_at=datetime.now(UTC),
             now=datetime.now(UTC),
             max_observed_age_seconds=30,
@@ -194,20 +195,16 @@ def test_rejects_non_positive_max_quote_quantity(
         )
 
 
-def test_is_market_open_returns_true_for_open_market() -> None:
-    assert is_market_open("open") is True
+def test_is_market_open_returns_true_for_active_market() -> None:
+    assert is_market_open(KalshiMarketStatus.ACTIVE) is True
 
 
-def test_is_market_open_returns_false_for_non_open_market() -> None:
-    assert is_market_open("closed") is False
-    assert is_market_open("paused") is False
-    assert is_market_open("settled") is False
-
-
-def test_is_market_open_returns_false_for_unrecognized_status() -> None:
-    assert is_market_open("") is False
-    assert is_market_open("OPEN") is False
-    assert is_market_open("unknown") is False
+def test_is_market_open_returns_false_for_non_active_market() -> None:
+    assert is_market_open(KalshiMarketStatus.CLOSED) is False
+    assert is_market_open(KalshiMarketStatus.INACTIVE) is False
+    assert is_market_open(KalshiMarketStatus.DETERMINED) is False
+    assert is_market_open(KalshiMarketStatus.FINALIZED) is False
+    assert is_market_open(KalshiMarketStatus.INITIALIZED) is False
 
 
 def test_rejects_quote_for_non_open_market(
@@ -216,7 +213,7 @@ def test_rejects_quote_for_non_open_market(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="closed",
+        market_status=KalshiMarketStatus.CLOSED,
         observed_at=datetime.now(UTC),
         now=datetime.now(UTC),
         max_observed_age_seconds=30,
@@ -293,7 +290,7 @@ def test_rejects_quote_when_market_data_is_stale(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=observed_at,
         now=now,
         max_observed_age_seconds=30,
@@ -358,7 +355,7 @@ def test_rejects_quote_when_market_exposure_exceeds_limit(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=observed_at,
         now=observed_at,
         max_observed_age_seconds=30,
@@ -423,7 +420,7 @@ def test_rejects_quote_when_available_balance_is_below_floor(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=observed_at,
         now=observed_at,
         max_observed_age_seconds=30,
@@ -469,7 +466,7 @@ def test_rejects_quote_when_projected_market_exposure_exceeds_limit(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=observed_at,
         now=observed_at,
         max_observed_age_seconds=30,
@@ -494,7 +491,7 @@ def test_rejects_quote_when_projected_available_balance_is_below_floor(
     risk_decision = evaluate_quote_risk(
         quote_decision,
         max_quote_quantity=Decimal("2.00"),
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=observed_at,
         now=observed_at,
         max_observed_age_seconds=30,

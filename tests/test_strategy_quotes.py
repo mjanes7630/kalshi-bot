@@ -4,6 +4,7 @@ from decimal import Decimal
 
 import pytest
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.marketdata.models import MarketSnapshot, OrderBookLevel
 from kalshi_bot.strategy.models import (
     QuoteDecision,
@@ -18,7 +19,7 @@ def snapshot() -> MarketSnapshot:
     return MarketSnapshot(
         ticker="TEST-MARKET",
         title="Test market",
-        status="open",
+        status=KalshiMarketStatus.ACTIVE,
         last_price=Decimal("0.4300"),
         yes_bids=(
             OrderBookLevel(
@@ -109,4 +110,46 @@ def test_skips_quotes_when_orderbook_is_empty(
     assert decision.yes_bid is None
     assert decision.yes_ask is None
     assert decision.reason is QuoteDecisionReason.INCOMPLETE_BOOK
+    assert decision.should_quote is False
+
+
+@pytest.mark.parametrize(
+    ("best_yes_bid", "best_yes_ask"),
+    [
+        (Decimal("0.4400"), Decimal("0.4400")),
+        (Decimal("0.4500"), Decimal("0.4400")),
+    ],
+)
+def test_skips_quotes_when_yes_book_is_crossed(
+    snapshot: MarketSnapshot,
+    best_yes_bid: Decimal,
+    best_yes_ask: Decimal,
+) -> None:
+    crossed_snapshot = replace(
+        snapshot,
+        yes_bids=(
+            OrderBookLevel(
+                price=best_yes_bid,
+                quantity=Decimal("13.00"),
+            ),
+        ),
+        yes_asks=(
+            OrderBookLevel(
+                price=best_yes_ask,
+                quantity=Decimal("17.00"),
+            ),
+        ),
+    )
+
+    decision = decide_quotes(
+        crossed_snapshot,
+        quote_quantity=Decimal("2.00"),
+    )
+
+    assert decision == QuoteDecision(
+        ticker="TEST-MARKET",
+        yes_bid=None,
+        yes_ask=None,
+        reason=QuoteDecisionReason.CROSSED_BOOK,
+    )
     assert decision.should_quote is False

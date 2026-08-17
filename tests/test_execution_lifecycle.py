@@ -9,6 +9,7 @@ from kalshi_bot.api.models import (
     CancelOrderResponse,
     CreateOrderRequest,
     GetOrdersResponse,
+    KalshiContractSide,
     KalshiOrder,
     KalshiOrderSide,
     KalshiTimeInForce,
@@ -71,7 +72,8 @@ def test_reconcile_execution_plan_cancels_unwanted_resting_order_when_enabled() 
     resting_order = Mock(spec=KalshiOrder)
     resting_order.order_id = "resting-order-123"
     resting_order.ticker = "TEST-MARKET"
-    resting_order.side = KalshiOrderSide.BID
+    resting_order.side = KalshiContractSide.YES
+    resting_order.book_side = KalshiOrderSide.BID
     resting_order.yes_price_dollars = Decimal("0.4200")
     resting_order.remaining_count_fp = Decimal("2.00")
 
@@ -159,7 +161,8 @@ def test_reconcile_execution_plan_replaces_outdated_order_when_both_actions_enab
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
-    outdated_order.side = KalshiOrderSide.BID
+    outdated_order.side = KalshiContractSide.YES
+    outdated_order.book_side = KalshiOrderSide.BID
     outdated_order.yes_price_dollars = Decimal("0.4100")
     outdated_order.remaining_count_fp = Decimal("2.00")
 
@@ -213,7 +216,8 @@ def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
-    outdated_order.side = KalshiOrderSide.BID
+    outdated_order.side = KalshiContractSide.YES
+    outdated_order.book_side = KalshiOrderSide.BID
     outdated_order.yes_price_dollars = Decimal("0.4100")
     outdated_order.remaining_count_fp = Decimal("2.00")
 
@@ -258,7 +262,8 @@ def test_reconcile_execution_plan_does_not_submit_replacement_when_cancellation_
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
-    outdated_order.side = KalshiOrderSide.BID
+    outdated_order.side = KalshiContractSide.YES
+    outdated_order.book_side = KalshiOrderSide.BID
     outdated_order.yes_price_dollars = Decimal("0.4100")
     outdated_order.remaining_count_fp = Decimal("2.00")
 
@@ -301,14 +306,16 @@ def test_reconcile_execution_plan_attempts_every_cancellation_before_raising() -
     first_order = Mock(spec=KalshiOrder)
     first_order.order_id = "first-order-123"
     first_order.ticker = "TEST-MARKET"
-    first_order.side = KalshiOrderSide.BID
+    first_order.side = KalshiContractSide.YES
+    first_order.book_side = KalshiOrderSide.BID
     first_order.yes_price_dollars = Decimal("0.4100")
     first_order.remaining_count_fp = Decimal("2.00")
 
     second_order = Mock(spec=KalshiOrder)
     second_order.order_id = "second-order-456"
     second_order.ticker = "TEST-MARKET"
-    second_order.side = KalshiOrderSide.BID
+    second_order.side = KalshiContractSide.YES
+    second_order.book_side = KalshiOrderSide.BID
     second_order.yes_price_dollars = Decimal("0.4300")
     second_order.remaining_count_fp = Decimal("2.00")
 
@@ -352,7 +359,8 @@ def test_reconcile_execution_plan_cancels_before_submitting_replacement() -> Non
     outdated_order = Mock(spec=KalshiOrder)
     outdated_order.order_id = "outdated-order-123"
     outdated_order.ticker = "TEST-MARKET"
-    outdated_order.side = KalshiOrderSide.BID
+    outdated_order.side = KalshiContractSide.YES
+    outdated_order.book_side = KalshiOrderSide.BID
     outdated_order.yes_price_dollars = Decimal("0.4100")
     outdated_order.remaining_count_fp = Decimal("2.00")
 
@@ -407,7 +415,8 @@ def test_reconcile_execution_plan_takes_no_actions_when_resting_order_matches_pl
     matching_order = Mock(spec=KalshiOrder)
     matching_order.order_id = "matching-order-123"
     matching_order.ticker = "TEST-MARKET"
-    matching_order.side = KalshiOrderSide.BID
+    matching_order.side = KalshiContractSide.YES
+    matching_order.book_side = KalshiOrderSide.BID
     matching_order.yes_price_dollars = Decimal("0.4200")
     matching_order.remaining_count_fp = Decimal("2.00")
 
@@ -511,7 +520,8 @@ def test_reconcile_execution_plan_submits_only_missing_order_when_one_order_alre
     matching_order = Mock(spec=KalshiOrder)
     matching_order.order_id = "matching-order-123"
     matching_order.ticker = "TEST-MARKET"
-    matching_order.side = KalshiOrderSide.BID
+    matching_order.side = KalshiContractSide.YES
+    matching_order.book_side = KalshiOrderSide.BID
     matching_order.yes_price_dollars = Decimal("0.4100")
     matching_order.remaining_count_fp = Decimal("2.00")
 
@@ -581,7 +591,8 @@ def test_reconcile_execution_plan_does_not_cancel_unowned_resting_order() -> Non
     unowned_order.order_id = "manual-order-123"
     unowned_order.client_order_id = "manual-order-id"
     unowned_order.ticker = "TEST-MARKET"
-    unowned_order.side = KalshiOrderSide.BID
+    unowned_order.side = KalshiContractSide.YES
+    unowned_order.book_side = KalshiOrderSide.BID
     unowned_order.yes_price_dollars = Decimal("0.4100")
     unowned_order.remaining_count_fp = Decimal("2.00")
 
@@ -622,7 +633,8 @@ def test_reconcile_execution_plan_cancels_resting_quote_before_submitting_flatte
     resting_order = Mock(spec=KalshiOrder)
     resting_order.order_id = "resting-order-123"
     resting_order.ticker = "TEST-MARKET"
-    resting_order.side = KalshiOrderSide.ASK
+    resting_order.side = KalshiContractSide.YES
+    resting_order.book_side = KalshiOrderSide.ASK
     resting_order.yes_price_dollars = Decimal("0.4200")
     resting_order.remaining_count_fp = Decimal("2.00")
 

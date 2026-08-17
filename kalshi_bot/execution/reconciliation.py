@@ -32,7 +32,7 @@ def reconcile_orders(
                 if desired_order.post_only
                 and desired_order.time_in_force is TimeInForce.GOOD_TILL_CANCELED
                 and resting_order.ticker == desired_order.ticker
-                and resting_order.side is expected_side
+                and resting_order.book_side is expected_side
                 and resting_order.yes_price_dollars == desired_order.price
                 and resting_order.remaining_count_fp == desired_order.quantity
             ),

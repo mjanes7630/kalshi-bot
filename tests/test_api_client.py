@@ -15,6 +15,7 @@ from kalshi_bot.api.models import (
     CreateOrderRequest,
     GetMarketResponse,
     GetOrderResponse,
+    KalshiContractSide,
     KalshiOrderSide,
 )
 
@@ -38,7 +39,7 @@ def test_get_markets_sends_request_and_parses_response() -> None:
                         "no_bid_dollars": "0.5800",
                         "no_ask_dollars": "0.6300",
                         "last_price_dollars": "0.4000",
-                        "status": "open",
+                        "status": "active",
                     }
                 ],
                 "cursor": "next-page-token",
@@ -104,7 +105,7 @@ def test_get_market_sends_request_and_parses_response() -> None:
                     "no_bid_dollars": "0.5800",
                     "no_ask_dollars": "0.6300",
                     "last_price_dollars": "0.4000",
-                    "status": "open",
+                    "status": "active",
                 }
             },
         )
@@ -871,7 +872,8 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
                     {
                         "order_id": "order-123",
                         "ticker": "TEST-MARKET",
-                        "side": "bid",
+                        "side": "yes",
+                        "book_side": "bid",
                         "yes_price_dollars": "0.4200",
                         "fill_count_fp": "0.50",
                         "remaining_count_fp": "1.50",
@@ -926,7 +928,8 @@ def test_get_orders_parses_order_side() -> None:
                     {
                         "order_id": "order-123",
                         "ticker": "TEST-MARKET",
-                        "side": "bid",
+                        "side": "yes",
+                        "book_side": "bid",
                         "yes_price_dollars": "0.4200",
                         "fill_count_fp": "0.00",
                         "remaining_count_fp": "2.00",
@@ -952,7 +955,8 @@ def test_get_orders_parses_order_side() -> None:
 
             response = await client.get_orders(status="resting")
 
-        assert response.orders[0].side is KalshiOrderSide.BID
+        assert response.orders[0].side is KalshiContractSide.YES
+        assert response.orders[0].book_side is KalshiOrderSide.BID
 
     asyncio.run(run_test())
 
@@ -1032,7 +1036,8 @@ def test_get_order_returns_specific_order() -> None:
                     "order_id": "order-123",
                     "client_order_id": "client-order-123",
                     "ticker": "TEST-MARKET",
-                    "side": "bid",
+                    "side": "yes",
+                    "book_side": "bid",
                     "yes_price_dollars": "0.4200",
                     "fill_count_fp": "0.00",
                     "remaining_count_fp": "1.00",
@@ -1323,7 +1328,7 @@ def test_get_market_retries_transient_connection_failure() -> None:
                     "no_bid_dollars": "0.5800",
                     "no_ask_dollars": "0.6300",
                     "last_price_dollars": "0.4000",
-                    "status": "open",
+                    "status": "active",
                 }
             },
         )
@@ -1580,7 +1585,8 @@ def test_get_orders_retries_transient_connection_failure() -> None:
                     {
                         "order_id": "order-123",
                         "ticker": "TEST-MARKET",
-                        "side": "bid",
+                        "side": "yes",
+                        "book_side": "bid",
                         "yes_price_dollars": "0.4200",
                         "fill_count_fp": "0.00",
                         "remaining_count_fp": "2.00",
@@ -1636,7 +1642,8 @@ def test_get_order_retries_transient_connection_failure() -> None:
                     "order_id": "order-123",
                     "client_order_id": "client-order-123",
                     "ticker": "TEST-MARKET",
-                    "side": "bid",
+                    "side": "yes",
+                    "book_side": "bid",
                     "yes_price_dollars": "0.4200",
                     "fill_count_fp": "0.00",
                     "remaining_count_fp": "1.00",

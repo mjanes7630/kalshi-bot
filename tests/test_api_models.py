@@ -1,5 +1,8 @@
 from decimal import Decimal
 
+import pytest
+from pydantic import ValidationError
+
 from kalshi_bot.api.models import (
     CancelOrderResponse,
     CreateOrderRequest,
@@ -11,7 +14,9 @@ from kalshi_bot.api.models import (
     GetOrdersResponse,
     GetPositionsResponse,
     GetTradesResponse,
+    KalshiContractSide,
     KalshiMarket,
+    KalshiMarketStatus,
     KalshiOrderSide,
     KalshiSelfTradePreventionType,
     KalshiTimeInForce,
@@ -29,7 +34,7 @@ def test_kalshi_market_parses_fixed_point_price_strings() -> None:
             "no_ask_dollars": "0.6300",
             "last_price_dollars": "0.4000",
             "event_ticker": "TEST-EVENT",
-            "status": "open",
+            "status": "active",
         }
     )
 
@@ -38,7 +43,7 @@ def test_kalshi_market_parses_fixed_point_price_strings() -> None:
     assert market.no_bid_dollars == Decimal("0.5800")
     assert market.no_ask_dollars == Decimal("0.6300")
     assert market.last_price_dollars == Decimal("0.4000")
-    assert market.status == "open"
+    assert market.status is KalshiMarketStatus.ACTIVE
 
 
 def test_get_markets_response_parses_markets_and_cursor() -> None:
@@ -53,7 +58,7 @@ def test_get_markets_response_parses_markets_and_cursor() -> None:
                     "no_bid_dollars": "0.5800",
                     "no_ask_dollars": "0.6300",
                     "last_price_dollars": "0.4000",
-                    "status": "open",
+                    "status": "active",
                 }
             ],
             "cursor": "next-page-token",
@@ -174,7 +179,8 @@ def test_get_orders_response_parses_fixed_point_values() -> None:
                 {
                     "order_id": "order-123",
                     "ticker": "TEST-MARKET",
-                    "side": "bid",
+                    "side": "yes",
+                    "book_side": "bid",
                     "yes_price_dollars": "0.4200",
                     "fill_count_fp": "0.50",
                     "remaining_count_fp": "1.50",
@@ -189,6 +195,8 @@ def test_get_orders_response_parses_fixed_point_values() -> None:
     order = response.orders[0]
 
     assert order.order_id == "order-123"
+    assert order.side is KalshiContractSide.YES
+    assert order.book_side is KalshiOrderSide.BID
     assert order.ticker == "TEST-MARKET"
     assert order.yes_price_dollars == Decimal("0.4200")
     assert order.fill_count_fp == Decimal("0.50")
@@ -205,7 +213,8 @@ def test_get_order_response_parses_order() -> None:
                 "order_id": "order-123",
                 "client_order_id": "client-order-123",
                 "ticker": "TEST-MARKET",
-                "side": "bid",
+                "side": "yes",
+                "book_side": "bid",
                 "yes_price_dollars": "0.4200",
                 "fill_count_fp": "0.00",
                 "remaining_count_fp": "1.00",
@@ -224,6 +233,8 @@ def test_get_order_response_parses_order() -> None:
     assert order.fill_count_fp == Decimal("0.00")
     assert order.remaining_count_fp == Decimal("1.00")
     assert order.initial_count_fp == Decimal("1.00")
+    assert order.side is KalshiContractSide.YES
+    assert order.book_side is KalshiOrderSide.BID
 
 
 def test_create_order_request_uses_safe_defaults() -> None:
@@ -322,10 +333,26 @@ def test_get_market_response_parses_market() -> None:
                 "no_bid_dollars": "0.5800",
                 "no_ask_dollars": "0.6300",
                 "last_price_dollars": "0.4000",
-                "status": "open",
+                "status": "active",
             }
         }
     )
 
     assert response.market.ticker == "TEST-MARKET"
     assert response.market.yes_bid_dollars == Decimal("0.3700")
+
+
+def test_kalshi_market_rejects_unrecognized_status() -> None:
+    with pytest.raises(ValidationError):
+        KalshiMarket.model_validate(
+            {
+                "ticker": "TEST-MARKET",
+                "title": "Test market",
+                "yes_bid_dollars": "0.3700",
+                "yes_ask_dollars": "0.4200",
+                "no_bid_dollars": "0.5800",
+                "no_ask_dollars": "0.6300",
+                "last_price_dollars": "0.4000",
+                "status": "unexpected_status",
+            }
+        )

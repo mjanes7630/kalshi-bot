@@ -1,11 +1,14 @@
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
+from http import HTTPStatus
 from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 
 from kalshi_bot.api.client import KalshiClient
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.config import Settings
 from kalshi_bot.execution.models import (
     ExecutionPlan,
@@ -50,6 +53,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     )
 
     snapshot = MagicMock()
+    snapshot.status = KalshiMarketStatus.ACTIVE
 
     http_client = AsyncMock()
     http_client.__aenter__.return_value = http_client
@@ -73,6 +77,14 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     client.get_positions.return_value = positions_response
     client.get_balance.return_value = balance_response
 
+    decide_quotes_mock = Mock()
+    decide_quotes_mock.return_value.should_quote = True
+    decide_quotes_mock.return_value.reason.value = "quoted"
+
+    evaluate_quote_risk_mock = Mock()
+    evaluate_quote_risk_mock.return_value.approved = True
+    evaluate_quote_risk_mock.return_value.reason.value = "approved"
+
     with (
         patch("kalshi_bot.main.load_private_key"),
         patch("kalshi_bot.main.httpx.AsyncClient", return_value=http_client),
@@ -81,8 +93,14 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
             "kalshi_bot.main.build_market_snapshot",
             return_value=snapshot,
         ),
-        patch("kalshi_bot.main.decide_quotes") as decide_quotes_mock,
-        patch("kalshi_bot.main.evaluate_quote_risk") as evaluate_quote_risk_mock,
+        patch(
+            "kalshi_bot.main.decide_quotes",
+            decide_quotes_mock,
+        ),
+        patch(
+            "kalshi_bot.main.evaluate_quote_risk",
+            evaluate_quote_risk_mock,
+        ),
         patch(
             "kalshi_bot.main.create_execution_plan",
             return_value=execution_plan,
@@ -91,6 +109,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
             "kalshi_bot.main.reconcile_execution_plan",
             new=AsyncMock(return_value=decision),
         ) as reconcile_mock,
+        patch("kalshi_bot.main.logger.info") as logger_info,
     ):
         asyncio.run(retrieve_demo_api_data(settings))
 
@@ -125,6 +144,29 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
         order_submission_enabled=False,
         order_cancellation_enabled=False,
         client_order_id_prefix=None,
+    )
+
+    logger_info.assert_any_call(
+        "demo_api_data_cycle_completed",
+        ticker="TEST-MARKET",
+        should_quote=True,
+        quote_reason="quoted",
+        risk_approved=True,
+        risk_reason="approved",
+        planned_order_count=0,
+        orders_to_cancel=0,
+        orders_to_submit=0,
+        inventory_action_side=None,
+        inventory_action_quantity=None,
+    )
+
+    logger_info.assert_any_call(
+        "quote_risk_evaluated",
+        ticker=ANY,
+        approved=True,
+        reason="approved",
+        max_quote_quantity="2.00",
+        market_status="active",
     )
 
 
@@ -339,7 +381,7 @@ def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
 
     snapshot = MagicMock()
     snapshot.ticker = "TEST-MARKET"
-    snapshot.status = "open"
+    snapshot.status = KalshiMarketStatus.ACTIVE
     snapshot.observed_at = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 
     market_position = Mock()
@@ -405,6 +447,7 @@ def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
             "kalshi_bot.main.can_flatten_inventory",
             return_value=True,
         ) as can_flatten_inventory_mock,
+        patch("kalshi_bot.main.logger.info") as logger_info,
     ):
         asyncio.run(retrieve_demo_api_data(settings))
 
@@ -417,8 +460,175 @@ def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
         client_order_id_prefix=None,
     )
     can_flatten_inventory_mock.assert_called_once_with(
-        market_status="open",
+        market_status=KalshiMarketStatus.ACTIVE,
         observed_at=snapshot.observed_at,
         now=ANY,
         max_observed_age_seconds=30,
     )
+
+    logger_info.assert_any_call(
+        "demo_api_data_cycle_completed",
+        ticker="TEST-MARKET",
+        should_quote=ANY,
+        quote_reason=ANY,
+        risk_approved=ANY,
+        risk_reason=ANY,
+        planned_order_count=1,
+        orders_to_cancel=0,
+        orders_to_submit=0,
+        inventory_action_side="sell",
+        inventory_action_quantity="2.00",
+    )
+
+
+def test_run_demo_lifecycle_cleans_up_session_orders_when_read_retry_is_exhausted() -> (
+    None
+):
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+
+    request = httpx.Request(
+        "GET",
+        "https://example.test/trade-api/v2/markets/TEST-MARKET",
+    )
+    response = httpx.Response(
+        HTTPStatus.TOO_MANY_REQUESTS,
+        request=request,
+    )
+    retry_error = httpx.HTTPStatusError(
+        "Client error '429 Too Many Requests'",
+        request=request,
+        response=response,
+    )
+
+    with (
+        patch(
+            "kalshi_bot.main.retrieve_demo_api_data",
+            new=AsyncMock(side_effect=retry_error),
+        ) as retrieve_mock,
+        patch(
+            "kalshi_bot.main.cancel_demo_lifecycle_orders",
+            new=AsyncMock(),
+        ) as cancel_mock,
+        pytest.raises(httpx.HTTPStatusError, match="429 Too Many Requests"),
+    ):
+        asyncio.run(run_demo_lifecycle(settings))
+
+    client_order_id_prefix = retrieve_mock.await_args.kwargs["client_order_id_prefix"]
+
+    cancel_mock.assert_awaited_once_with(
+        settings,
+        client_order_id_prefix=client_order_id_prefix,
+    )
+
+
+def test_run_demo_lifecycle_preserves_read_failure_when_session_cleanup_fails() -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+
+    request = httpx.Request(
+        "GET",
+        "https://example.test/trade-api/v2/markets/TEST-MARKET",
+    )
+    response = httpx.Response(
+        HTTPStatus.TOO_MANY_REQUESTS,
+        request=request,
+    )
+    retry_error = httpx.HTTPStatusError(
+        "Client error '429 Too Many Requests'",
+        request=request,
+        response=response,
+    )
+    cleanup_error = RuntimeError("Session cleanup failed.")
+
+    with (
+        patch(
+            "kalshi_bot.main.retrieve_demo_api_data",
+            new=AsyncMock(side_effect=retry_error),
+        ),
+        patch(
+            "kalshi_bot.main.cancel_demo_lifecycle_orders",
+            new=AsyncMock(side_effect=cleanup_error),
+        ),
+        pytest.raises(ExceptionGroup) as error,
+    ):
+        asyncio.run(run_demo_lifecycle(settings))
+
+    assert error.value.message == "Lifecycle cycle and cleanup both failed."
+    assert error.value.exceptions == (retry_error, cleanup_error)
+
+
+def test_run_demo_lifecycle_raises_cleanup_failure_after_successful_cycles() -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+
+    cleanup_error = RuntimeError("Session cleanup failed.")
+
+    with (
+        patch(
+            "kalshi_bot.main.retrieve_demo_api_data",
+            new=AsyncMock(),
+        ),
+        patch(
+            "kalshi_bot.main.cancel_demo_lifecycle_orders",
+            new=AsyncMock(side_effect=cleanup_error),
+        ),
+        pytest.raises(RuntimeError, match="Session cleanup failed."),
+    ):
+        asyncio.run(run_demo_lifecycle(settings))
+
+
+def test_run_demo_lifecycle_cleans_up_session_orders_when_cancelled() -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+
+    cancellation_error = asyncio.CancelledError()
+
+    with (
+        patch(
+            "kalshi_bot.main.retrieve_demo_api_data",
+            new=AsyncMock(side_effect=cancellation_error),
+        ) as retrieve_mock,
+        patch(
+            "kalshi_bot.main.cancel_demo_lifecycle_orders",
+            new=AsyncMock(),
+        ) as cancel_mock,
+        pytest.raises(asyncio.CancelledError),
+    ):
+        asyncio.run(run_demo_lifecycle(settings))
+
+    client_order_id_prefix = retrieve_mock.await_args.kwargs["client_order_id_prefix"]
+
+    cancel_mock.assert_awaited_once_with(
+        settings,
+        client_order_id_prefix=client_order_id_prefix,
+    )
+
+
+def test_run_demo_lifecycle_preserves_cancellation_when_session_cleanup_fails() -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+
+    cancellation_error = asyncio.CancelledError()
+    cleanup_error = RuntimeError("Session cleanup failed.")
+
+    with (
+        patch(
+            "kalshi_bot.main.retrieve_demo_api_data",
+            new=AsyncMock(side_effect=cancellation_error),
+        ),
+        patch(
+            "kalshi_bot.main.cancel_demo_lifecycle_orders",
+            new=AsyncMock(side_effect=cleanup_error),
+        ),
+        pytest.raises(BaseExceptionGroup) as error,
+    ):
+        asyncio.run(run_demo_lifecycle(settings))
+
+    assert error.value.message == "Lifecycle cycle and cleanup both failed."
+    assert error.value.exceptions == (cancellation_error, cleanup_error)

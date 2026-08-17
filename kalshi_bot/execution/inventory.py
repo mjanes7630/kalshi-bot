@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.execution.models import OrderIntent, OrderSide, TimeInForce
 from kalshi_bot.marketdata.models import MarketSnapshot
 from kalshi_bot.risk.checks import is_market_data_fresh, is_market_open
@@ -37,7 +38,7 @@ def decide_inventory_action(
 
 def can_flatten_inventory(
     *,
-    market_status: str,
+    market_status: KalshiMarketStatus,
     observed_at: datetime,
     now: datetime,
     max_observed_age_seconds: int,
@@ -56,7 +57,7 @@ def create_flattening_order_intent(
     if ticker != snapshot.ticker:
         raise ValueError("ticker must match snapshot.ticker")
 
-    if snapshot.status != "open":
+    if snapshot.status is not KalshiMarketStatus.ACTIVE:
         raise ValueError("market must be open.")
 
     if inventory_action.quantity <= Decimal("0.00"):

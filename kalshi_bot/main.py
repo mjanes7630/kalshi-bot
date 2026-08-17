@@ -226,6 +226,7 @@ async def retrieve_demo_api_data(
         ticker=risk_decision.ticker,
         approved=risk_decision.approved,
         reason=risk_decision.reason.value,
+        market_status=snapshot.status.value,
         max_quote_quantity=str(max_quote_quantity),
     )
 
@@ -252,6 +253,24 @@ async def retrieve_demo_api_data(
         planned_order_count=len(execution_plan.order_intents),
         orders_to_cancel=len(reconciliation_decision.order_ids_to_cancel),
         orders_to_submit=len(reconciliation_decision.order_intents_to_submit),
+    )
+
+    logger.info(
+        "demo_api_data_cycle_completed",
+        ticker=execution_plan.ticker,
+        should_quote=quote_decision.should_quote,
+        quote_reason=quote_decision.reason.value,
+        risk_approved=risk_decision.approved,
+        risk_reason=risk_decision.reason.value,
+        planned_order_count=len(execution_plan.order_intents),
+        orders_to_cancel=len(reconciliation_decision.order_ids_to_cancel),
+        orders_to_submit=len(reconciliation_decision.order_intents_to_submit),
+        inventory_action_side=(
+            inventory_action.side.value if inventory_action is not None else None
+        ),
+        inventory_action_quantity=(
+            str(inventory_action.quantity) if inventory_action is not None else None
+        ),
     )
 
 
@@ -312,7 +331,20 @@ async def run_demo_lifecycle(settings: Settings) -> None:
                 await asyncio.sleep(
                     float(settings.demo_poll_interval_seconds),
                 )
-    finally:
+    except BaseException as lifecycle_error:
+        try:
+            await cancel_demo_lifecycle_orders(
+                settings,
+                client_order_id_prefix=client_order_id_prefix,
+            )
+        except BaseException as cleanup_error:  # noqa: BLE001
+            raise BaseExceptionGroup(
+                "Lifecycle cycle and cleanup both failed.",
+                [lifecycle_error, cleanup_error],
+            ) from None
+
+        raise
+    else:
         await cancel_demo_lifecycle_orders(
             settings,
             client_order_id_prefix=client_order_id_prefix,
@@ -371,11 +403,45 @@ def main() -> None:
     try:
         asyncio.run(run_demo_lifecycle(settings))
     except (OSError, ValueError, TypeError, httpx.HTTPError, ExceptionGroup) as error:
-        logger.error(
-            "demo_api_data_retrieval_failed",
-            error=str(error),
-            error_type=type(error).__name__,
-        )
+        if isinstance(error, httpx.HTTPStatusError):
+            api_error_code = None
+            api_error_message = None
+
+            try:
+                response_data = error.response.json()
+            except ValueError:
+                pass
+            else:
+                response_error = (
+                    response_data.get("error")
+                    if isinstance(response_data, dict)
+                    else None
+                )
+
+                if isinstance(response_error, dict):
+                    error_code = response_error.get("code")
+                    error_message = response_error.get("message")
+
+                    if isinstance(error_code, str):
+                        api_error_code = error_code
+
+                    if isinstance(error_message, str):
+                        api_error_message = error_message
+
+            logger.error(
+                "demo_api_data_retrieval_failed",
+                error=str(error),
+                error_type=type(error).__name__,
+                http_status_code=error.response.status_code,
+                api_error_code=api_error_code,
+                api_error_message=api_error_message,
+            )
+        else:
+            logger.error(
+                "demo_api_data_retrieval_failed",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
 
 
 if __name__ == "__main__":

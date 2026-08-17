@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.execution.inventory import (
     InventoryAction,
     can_flatten_inventory,
@@ -60,7 +61,7 @@ def test_can_flatten_inventory_returns_false_for_closed_market() -> None:
 
     assert (
         can_flatten_inventory(
-            market_status="closed",
+            market_status=KalshiMarketStatus.CLOSED,
             observed_at=observed_at,
             now=observed_at,
             max_observed_age_seconds=30,
@@ -74,7 +75,7 @@ def test_can_flatten_inventory_returns_false_for_stale_market_data() -> None:
 
     assert (
         can_flatten_inventory(
-            market_status="open",
+            market_status=KalshiMarketStatus.ACTIVE,
             observed_at=observed_at,
             now=observed_at + timedelta(seconds=31),
             max_observed_age_seconds=30,
@@ -88,7 +89,7 @@ def test_can_flatten_inventory_returns_true_for_open_fresh_market() -> None:
 
     assert (
         can_flatten_inventory(
-            market_status="open",
+            market_status=KalshiMarketStatus.ACTIVE,
             observed_at=observed_at,
             now=observed_at + timedelta(seconds=30),
             max_observed_age_seconds=30,

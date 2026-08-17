@@ -5,6 +5,15 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 
+class KalshiMarketStatus(StrEnum):
+    INITIALIZED = "initialized"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    CLOSED = "closed"
+    DETERMINED = "determined"
+    FINALIZED = "finalized"
+
+
 class KalshiMarket(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -15,7 +24,7 @@ class KalshiMarket(BaseModel):
     no_bid_dollars: Decimal
     no_ask_dollars: Decimal
     last_price_dollars: Decimal
-    status: str
+    status: KalshiMarketStatus
 
 
 class GetMarketsResponse(BaseModel):
@@ -111,6 +120,11 @@ class KalshiOrderSide(StrEnum):
     ASK = "ask"
 
 
+class KalshiContractSide(StrEnum):
+    YES = "yes"
+    NO = "no"
+
+
 class KalshiTimeInForce(StrEnum):
     FILL_OR_KILL = "fill_or_kill"
     GOOD_TILL_CANCELED = "good_till_canceled"
@@ -165,7 +179,8 @@ class KalshiOrder(BaseModel):
     remaining_count_fp: Decimal
     initial_count_fp: Decimal
     client_order_id: str | None = None
-    side: KalshiOrderSide
+    side: KalshiContractSide
+    book_side: KalshiOrderSide
 
 
 class GetOrdersResponse(BaseModel):

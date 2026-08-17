@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
+from kalshi_bot.api.models import KalshiMarketStatus
+
 
 @dataclass(frozen=True)
 class OrderBookLevel:
@@ -24,7 +26,7 @@ class MarketSnapshot:
 
     ticker: str
     title: str
-    status: str
+    status: KalshiMarketStatus
     last_price: Decimal
     yes_bids: tuple[OrderBookLevel, ...]
     yes_asks: tuple[OrderBookLevel, ...]

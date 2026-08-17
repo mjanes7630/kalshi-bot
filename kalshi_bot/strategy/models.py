@@ -6,6 +6,7 @@ from enum import StrEnum
 class QuoteDecisionReason(StrEnum):
     TWO_SIDED_BOOK = "two_sided_book"
     INCOMPLETE_BOOK = "incomplete_book"
+    CROSSED_BOOK = "crossed_book"
 
 
 @dataclass(frozen=True)

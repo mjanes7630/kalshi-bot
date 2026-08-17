@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from kalshi_bot.api.models import KalshiMarketStatus
 from kalshi_bot.risk.models import RiskDecision, RiskDecisionReason
 from kalshi_bot.strategy.models import QuoteDecision
 
@@ -9,7 +10,7 @@ def evaluate_quote_risk(
     quote_decision: QuoteDecision,
     *,
     max_quote_quantity: Decimal,
-    market_status: str,
+    market_status: KalshiMarketStatus,
     observed_at: datetime,
     now: datetime,
     max_observed_age_seconds: int,
@@ -86,8 +87,8 @@ def evaluate_quote_risk(
     )
 
 
-def is_market_open(status: str) -> bool:
-    return status == "open"
+def is_market_open(status: KalshiMarketStatus) -> bool:
+    return status is KalshiMarketStatus.ACTIVE
 
 
 def is_market_data_fresh(
