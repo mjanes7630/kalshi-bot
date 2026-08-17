@@ -2,6 +2,8 @@ import asyncio
 import base64
 import json
 from decimal import Decimal
+from http import HTTPStatus
+from unittest.mock import AsyncMock, call, patch
 
 import httpx
 import pytest
@@ -25,7 +27,7 @@ def test_get_markets_sends_request_and_parses_response() -> None:
         assert request.url.params["cursor"] == "current-page-token"
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "markets": [
                     {
@@ -65,7 +67,7 @@ def test_get_markets_sends_request_and_parses_response() -> None:
 def test_get_markets_raises_for_unsuccessful_response() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            503,
+            HTTPStatus.SERVICE_UNAVAILABLE,
             json={"error": "Service unavailable"},
         )
 
@@ -81,7 +83,7 @@ def test_get_markets_raises_for_unsuccessful_response() -> None:
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.get_markets()
 
-        assert error.value.response.status_code == 503
+        assert error.value.response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
 
     asyncio.run(run_test())
 
@@ -92,7 +94,7 @@ def test_get_market_sends_request_and_parses_response() -> None:
         assert request.url.path == "/trade-api/v2/markets/TEST-MARKET"
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "market": {
                     "ticker": "TEST-MARKET",
@@ -152,7 +154,7 @@ def test_get_market_orderbook_sends_authenticated_request_and_parses_response() 
         )
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "orderbook_fp": {
                     "yes_dollars": [
@@ -215,7 +217,7 @@ def test_get_balance_sends_authenticated_request_and_parses_response() -> None:
         )
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "balance": 1250,
                 "balance_dollars": "12.5000",
@@ -319,7 +321,7 @@ def test_get_trades_sends_request_and_parses_response() -> None:
         assert "KALSHI-ACCESS-KEY" not in request.headers
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "trades": [
                     {
@@ -368,7 +370,7 @@ def test_get_trades_omits_optional_query_parameters() -> None:
         assert "cursor" not in request.url.params
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "trades": [],
                 "cursor": "",
@@ -438,7 +440,7 @@ def test_get_positions_sends_authenticated_request_and_parses_response() -> None
         )
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "market_positions": [
                     {
@@ -518,7 +520,7 @@ def test_get_positions_omits_optional_query_parameters() -> None:
         assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "market_positions": [],
                 "event_positions": [],
@@ -621,7 +623,7 @@ def test_create_order_sends_authenticated_request_and_parses_response() -> None:
         )
 
         return httpx.Response(
-            201,
+            HTTPStatus.CREATED,
             json={
                 "order_id": "order-123",
                 "client_order_id": "client-order-123",
@@ -694,7 +696,7 @@ def test_create_order_raises_for_unsuccessful_response() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            409,
+            HTTPStatus.CONFLICT,
             json={
                 "code": "order_rejected",
                 "message": "Order rejected",
@@ -718,7 +720,7 @@ def test_create_order_raises_for_unsuccessful_response() -> None:
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.create_order(order_request)
 
-        assert error.value.response.status_code == 409
+        assert error.value.response.status_code == HTTPStatus.CONFLICT
 
     asyncio.run(run_test())
 
@@ -750,7 +752,7 @@ def test_cancel_order_sends_authenticated_request_and_parses_response() -> None:
         )
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "order_id": "order-123",
                 "client_order_id": "client-order-123",
@@ -806,7 +808,7 @@ def test_cancel_order_raises_for_unsuccessful_response() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            409,
+            HTTPStatus.CONFLICT,
             json={
                 "code": "order_not_cancelable",
                 "message": "Order cannot be canceled",
@@ -829,7 +831,7 @@ def test_cancel_order_raises_for_unsuccessful_response() -> None:
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.cancel_order("order-123")
 
-        assert error.value.response.status_code == 409
+        assert error.value.response.status_code == HTTPStatus.CONFLICT
 
     asyncio.run(run_test())
 
@@ -863,7 +865,7 @@ def test_get_orders_sends_authenticated_request_and_parses_response() -> None:
         )
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "orders": [
                     {
@@ -918,7 +920,7 @@ def test_get_orders_parses_order_side() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "orders": [
                     {
@@ -1024,7 +1026,7 @@ def test_get_order_returns_specific_order() -> None:
         assert request.headers["KALSHI-ACCESS-KEY"] == "test-key-id"
 
         return httpx.Response(
-            200,
+            HTTPStatus.OK,
             json={
                 "order": {
                     "order_id": "order-123",
@@ -1090,7 +1092,7 @@ def test_get_order_raises_for_unsuccessful_response() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            404,
+            HTTPStatus.NOT_FOUND,
             json={
                 "code": "order_not_found",
                 "message": "Order not found",
@@ -1113,7 +1115,7 @@ def test_get_order_raises_for_unsuccessful_response() -> None:
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.get_order("order-123")
 
-        assert error.value.response.status_code == 404
+        assert error.value.response.status_code == HTTPStatus.NOT_FOUND
 
     asyncio.run(run_test())
 
@@ -1121,7 +1123,7 @@ def test_get_order_raises_for_unsuccessful_response() -> None:
 def test_get_market_raises_for_unsuccessful_response() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            404,
+            HTTPStatus.NOT_FOUND,
             json={"error": "Market not found"},
         )
 
@@ -1137,6 +1139,828 @@ def test_get_market_raises_for_unsuccessful_response() -> None:
             with pytest.raises(httpx.HTTPStatusError) as error:
                 await client.get_market("UNKNOWN-MARKET")
 
-        assert error.value.response.status_code == 404
+        assert error.value.response.status_code == HTTPStatus.NOT_FOUND
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_retries_transient_connection_failure() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_retries_with_exponential_backoff() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count < 3:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with patch(
+                "kalshi_bot.api.client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 3
+        assert sleep.await_args_list == [
+            call(0.1),
+            call(0.2),
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_does_not_retry_unsuccessful_response() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        return httpx.Response(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            json={
+                "error": "Service unavailable",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with pytest.raises(httpx.HTTPStatusError) as error:
+                await client.get_markets()
+
+        assert error.value.response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert request_count == 1
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_raises_after_retry_limit_is_exhausted() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        raise httpx.ConnectError(
+            "Connection failed.",
+            request=request,
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with (
+                patch(
+                    "kalshi_bot.api.client.asyncio.sleep",
+                    new_callable=AsyncMock,
+                ) as sleep,
+                pytest.raises(httpx.ConnectError, match="Connection failed."),
+            ):
+                await client.get_markets()
+
+        assert request_count == 3
+        assert sleep.await_args_list == [
+            call(0.1),
+            call(0.2),
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_get_market_retries_transient_connection_failure() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "market": {
+                    "ticker": "TEST-MARKET",
+                    "title": "Test market",
+                    "yes_bid_dollars": "0.3700",
+                    "yes_ask_dollars": "0.4200",
+                    "no_bid_dollars": "0.5800",
+                    "no_ask_dollars": "0.6300",
+                    "last_price_dollars": "0.4000",
+                    "status": "open",
+                }
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            result = await client.get_market("TEST-MARKET")
+
+        assert result.market.ticker == "TEST-MARKET"
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_balance_retries_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "balance": 1250,
+                "balance_dollars": "12.5000",
+                "portfolio_value": 1550,
+                "updated_ts": 1703123456,
+                "balance_breakdown": [],
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_balance()
+
+        assert result.balance_dollars == Decimal("12.5000")
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_market_orderbook_retries_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "orderbook_fp": {
+                    "yes_dollars": [
+                        ["0.3700", "125.00"],
+                    ],
+                    "no_dollars": [
+                        ["0.5800", "80.00"],
+                    ],
+                },
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_market_orderbook(
+                ticker="TEST-MARKET",
+                depth=5,
+            )
+
+        assert result.orderbook_fp.yes_dollars == [
+            (Decimal("0.3700"), Decimal("125.00")),
+        ]
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_trades_retries_transient_connection_failure() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "trades": [
+                    {
+                        "trade_id": "trade-123",
+                        "ticker": "TEST-MARKET",
+                        "count_fp": "12.50",
+                        "yes_price_dollars": "0.4100",
+                        "no_price_dollars": "0.5900",
+                        "created_time": "2026-07-31T18:45:00Z",
+                        "is_block_trade": False,
+                    }
+                ],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            result = await client.get_trades(ticker="TEST-MARKET")
+
+        assert result.trades[0].trade_id == "trade-123"
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_positions_retries_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "market_positions": [
+                    {
+                        "ticker": "TEST-MARKET",
+                        "total_traded_dollars": "7.2500",
+                        "position_fp": "-5.00",
+                        "market_exposure_dollars": "2.0500",
+                        "realized_pnl_dollars": "-0.3000",
+                        "fees_paid_dollars": "0.1200",
+                        "last_updated_ts": "2026-07-31T19:30:00Z",
+                    }
+                ],
+                "event_positions": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_positions(ticker="TEST-MARKET")
+
+        assert result.market_positions[0].ticker == "TEST-MARKET"
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_orders_retries_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "orders": [
+                    {
+                        "order_id": "order-123",
+                        "ticker": "TEST-MARKET",
+                        "side": "bid",
+                        "yes_price_dollars": "0.4200",
+                        "fill_count_fp": "0.00",
+                        "remaining_count_fp": "2.00",
+                        "initial_count_fp": "2.00",
+                    }
+                ],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_orders(status="resting")
+
+        assert result.orders[0].order_id == "order-123"
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_order_retries_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            raise httpx.ConnectError(
+                "Connection failed.",
+                request=request,
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "order": {
+                    "order_id": "order-123",
+                    "client_order_id": "client-order-123",
+                    "ticker": "TEST-MARKET",
+                    "side": "bid",
+                    "yes_price_dollars": "0.4200",
+                    "fill_count_fp": "0.00",
+                    "remaining_count_fp": "1.00",
+                    "initial_count_fp": "1.00",
+                }
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            result = await client.get_order("order-123")
+
+        assert result.order.order_id == "order-123"
+        assert request_count == 2
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_retries_rate_limit_response() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            return httpx.Response(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                json={"error": "Rate limit exceeded"},
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with patch(
+                "kalshi_bot.api.client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 2
+        assert sleep.await_args_list == [call(0.1)]
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_raises_after_rate_limit_retry_limit_is_exhausted() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        return httpx.Response(
+            HTTPStatus.TOO_MANY_REQUESTS,
+            json={"error": "Rate limit exceeded"},
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with (
+                patch(
+                    "kalshi_bot.api.client.asyncio.sleep",
+                    new_callable=AsyncMock,
+                ) as sleep,
+                pytest.raises(httpx.HTTPStatusError) as error,
+            ):
+                await client.get_markets()
+
+        assert error.value.response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+        assert request_count == 3
+        assert sleep.await_args_list == [
+            call(0.1),
+            call(0.2),
+        ]
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_honors_rate_limit_retry_after_header() -> None:
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            return httpx.Response(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Retry-After": "1"},
+                json={"error": "Rate limit exceeded"},
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with patch(
+                "kalshi_bot.api.client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 2
+        assert sleep.await_args_list == [call(1.0)]
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_uses_backoff_when_rate_limit_retry_after_header_is_invalid() -> (
+    None
+):
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            return httpx.Response(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Retry-After": "soon"},
+                json={"error": "Rate limit exceeded"},
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with patch(
+                "kalshi_bot.api.client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 2
+        assert sleep.await_args_list == [call(0.1)]
+
+    asyncio.run(run_test())
+
+
+def test_get_markets_uses_backoff_when_rate_limit_retry_after_header_is_negative() -> (
+    None
+):
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        if request_count == 1:
+            return httpx.Response(
+                HTTPStatus.TOO_MANY_REQUESTS,
+                headers={"Retry-After": "-1"},
+                json={"error": "Rate limit exceeded"},
+            )
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "markets": [],
+                "cursor": "",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            with patch(
+                "kalshi_bot.api.client.asyncio.sleep",
+                new_callable=AsyncMock,
+            ) as sleep:
+                result = await client.get_markets()
+
+        assert result.markets == []
+        assert request_count == 2
+        assert sleep.await_args_list == [call(0.1)]
+
+    asyncio.run(run_test())
+
+
+def test_create_order_does_not_retry_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    order_request = CreateOrderRequest(
+        ticker="TEST-MARKET",
+        client_order_id="client-order-123",
+        side=KalshiOrderSide.BID,
+        count=Decimal("2.00"),
+        price=Decimal("0.4200"),
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        raise httpx.ConnectError(
+            "Connection failed.",
+            request=request,
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(httpx.ConnectError, match="Connection failed."):
+                await client.create_order(order_request)
+
+        assert request_count == 1
+
+    asyncio.run(run_test())
+
+
+def test_cancel_order_does_not_retry_transient_connection_failure() -> None:
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    request_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+
+        raise httpx.ConnectError(
+            "Connection failed.",
+            request=request,
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(
+                http_client,
+                api_key_id="test-key-id",
+                private_key=private_key,
+            )
+
+            with pytest.raises(httpx.ConnectError, match="Connection failed."):
+                await client.cancel_order("order-123")
+
+        assert request_count == 1
 
     asyncio.run(run_test())

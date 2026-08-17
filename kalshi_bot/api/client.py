@@ -1,4 +1,6 @@
+import asyncio
 import time
+from http import HTTPStatus
 
 import httpx
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -33,6 +35,50 @@ class KalshiClient:
         self._api_key_id = api_key_id
         self._private_key = private_key
 
+    async def _get_with_retry(
+        self,
+        url: str,
+        *,
+        params: dict[str, int | str] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> httpx.Response:
+        for attempt in range(3):
+            try:
+                response = await self._http_client.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                )
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+
+                delay_seconds = 0.1 * (2**attempt)
+                await asyncio.sleep(delay_seconds)
+
+            else:
+                if response.status_code is not HTTPStatus.TOO_MANY_REQUESTS:
+                    return response
+
+                if attempt == 2:
+                    return response
+
+                delay_seconds = 0.1 * (2**attempt)
+                retry_after = response.headers.get("Retry-After")
+
+                if retry_after is not None:
+                    try:
+                        retry_after_seconds = float(retry_after)
+                    except ValueError:
+                        pass
+                    else:
+                        if retry_after_seconds >= 0:
+                            delay_seconds = retry_after_seconds
+
+                await asyncio.sleep(delay_seconds)
+
+        raise RuntimeError("Unreachable retry state.")
+
     async def get_markets(
         self,
         *,
@@ -44,7 +90,7 @@ class KalshiClient:
         if cursor is not None:
             params["cursor"] = cursor
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             "markets",
             params=params,
         )
@@ -56,7 +102,7 @@ class KalshiClient:
         self,
         ticker: str,
     ) -> GetMarketResponse:
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             f"markets/{ticker}",
         )
         response.raise_for_status()
@@ -81,7 +127,7 @@ class KalshiClient:
         if not 1 <= limit <= 1000:
             raise ValueError("Trade limit must be between 1 and 1000.")
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             "markets/trades",
             params=params,
         )
@@ -114,7 +160,7 @@ class KalshiClient:
             path=path,
         )
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             f"markets/{ticker}/orderbook",
             params={"depth": depth},
             headers=headers,
@@ -138,7 +184,7 @@ class KalshiClient:
             path=path,
         )
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             "portfolio/balance",
             headers=headers,
         )
@@ -182,7 +228,7 @@ class KalshiClient:
             path=path,
         )
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             "portfolio/positions",
             params=params,
             headers=headers,
@@ -209,7 +255,7 @@ class KalshiClient:
             path=path,
         )
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             f"portfolio/orders/{order_id}",
             headers=headers,
         )
@@ -250,7 +296,7 @@ class KalshiClient:
             path=path,
         )
 
-        response = await self._http_client.get(
+        response = await self._get_with_retry(
             "portfolio/orders",
             params=params,
             headers=headers,

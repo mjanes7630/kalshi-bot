@@ -1,28 +1,22 @@
 # Kalshi Bot Project Status
 
-_Updated: August 14, 2026 — Day 21 complete_
+_Updated: August 17, 2026 — Day 22 complete_
 
 ## Executive summary
 
-The bot now has a complete, typed path from Kalshi market data to a bounded,
-configured single-market demo lifecycle. It can identify confirmed YES
-inventory, stop quoting, and attempt to return that inventory to zero while the
-market is still open and the market observation is fresh.
+The bot now has a typed, tested path from Kalshi demo-market data through quote strategy, risk checks, execution planning, reconciliation, inventory safety, and bounded single-market lifecycle cleanup.
 
-`Kalshi API -> configured market -> typed API models -> MarketSnapshot -> QuoteDecision -> positions and balance -> RiskDecision -> ExecutionPlan or inventory-flattening plan -> session-scoped reconciliation -> flag-gated submission -> bounded polling -> session-scoped cleanup -> structured logs`
+`Kalshi API -> typed API models -> MarketSnapshot -> QuoteDecision -> position + balance risk gates -> ExecutionPlan -> session-scoped reconciliation -> safe inventory flattening -> flag-gated execution -> bounded polling -> session cleanup -> structured logs`
 
-Day 21 is complete. Ruff formatting and linting passed, and the complete local
-test suite passed with **206 tests**.
+Day 22 adds bounded resilience for read-only API requests. GET requests retry transient transport failures and rate-limit responses without making order-writing behavior less safe.
 
-The normal bot cannot submit or cancel unless its separate safety flags are
-explicitly enabled. Both flags remain `false` in the private `.env` outside
-controlled testing.
+The complete local suite passes with **224 tests**. Ruff linting and formatting pass. Order submission and cancellation remain disabled by default in the private `.env`.
 
 ## Environment
 
 - Windows and PowerShell
 - Cursor
-- Python 3.14.6 with uv
+- Python 3.14.6 managed with uv
 - pytest and Ruff
 - Pydantic, HTTPX, Cryptography, and Structlog
 - GitHub repository: `mjanes7630/kalshi-bot`
@@ -31,8 +25,8 @@ controlled testing.
 
 ```text
 kalshi_bot/
-  api/                 # Authentication, HTTP client, typed API models
-  execution/           # Planning, submission, cancellation, reconciliation
+  api/                 # Authentication, typed HTTP client, API models
+  execution/           # Plans, submission, cancellation, reconciliation
   marketdata/          # Exchange-to-domain snapshot boundary
   models/              # Internal market model
   risk/                # Pure risk decisions and checks
@@ -50,146 +44,92 @@ tests/                 # Unit and lifecycle integration tests
 
 ### Configuration and logging
 
-`Settings` loads typed configuration from `.env` and `KALSHI_BOT_`
-environment variables. Safety-relevant settings include separate submission and
-cancellation flags, a configured ticker, positive quote quantity, bounded
-lifecycle count and polling interval, a 30-second maximum observation age, a
-$5.00 projected per-market exposure cap, and a $10.00 projected available
-balance floor.
+`Settings` loads typed configuration from `.env` and `KALSHI_BOT_` environment variables. Separate submission and cancellation flags both default to `False`. The lifecycle uses one configured market, a positive quote quantity, a bounded cycle count, and a polling interval.
 
-`.env.example` documents these controls without enabling either action flag.
-The full-access demo credential, private `.env`, and RSA key remain outside
-version control.
+Risk settings include a maximum market-data age, projected per-market-exposure cap, projected available-balance floor, and inventory-flattening controls. Credentials and private keys remain outside version control.
 
 ### API client and market-data boundary
 
-The client signs authenticated Kalshi demo-environment requests with RSA-PSS
-and SHA-256. It supports configured market lookup, order books, recent trades,
-balance, positions, individual and paginated resting-order reads, event-order
-creation, and individual event-order cancellation.
+The client uses RSA-PSS/SHA-256 to sign authenticated Kalshi demo requests. It supports market lookup, order books, trades, balance, positions, single-order and paginated resting-order reads, event-order creation, and cancellation.
 
-Typed Pydantic API models parse fixed-point values into `Decimal` and times
-into `datetime`. `build_market_snapshot()` converts exchange models into
-immutable internal data: it sorts YES bids, converts NO bids to implied YES
-asks, filters trades for the market, and accepts a provided observation time for
-deterministic tests.
+Typed Pydantic models convert fixed-point API values to `Decimal`; `build_market_snapshot()` creates the immutable domain snapshot consumed by the strategy and risk layers.
 
-### Strategy and quote risk gates
+#### Read-only retry policy
 
-`decide_quotes()` is pure and deterministic. It requires a complete two-sided
-YES book and produces a bid and ask at the configured quantity; incomplete
-books produce no quote.
+All GET methods use one bounded retry helper:
 
-`evaluate_quote_risk()` is pure and deterministic. Normal quote plans require
-a complete, size-bounded quote, an open market, fresh data, projected exposure
-within the configured cap, and projected available balance at or above the
-configured floor. Quote reservation conservatively assumes both proposed sides
-could expose the account at once.
+- Up to three total attempts: the original request and two retries.
+- Retries `httpx.TransportError` failures such as connection loss and timeouts.
+- Retries `HTTPStatus.TOO_MANY_REQUESTS` (`429`) responses.
+- Uses exponential fallback waits of 0.1 then 0.2 seconds.
+- Honors a valid non-negative numeric `Retry-After` header on a `429`.
+- Safely falls back when that header is missing, malformed, or negative.
+- Leaves all other HTTP responses to the calling method's `response.raise_for_status()` handling.
 
-### Inventory safety and flattening
+Order-creation and cancellation methods deliberately do **not** use this helper. A timed-out POST or DELETE may have been processed by Kalshi; resending it could create an ambiguous or duplicate action. Tests explicitly prove these write requests are attempted once only.
 
-`decide_inventory_action()` is a pure inventory decision:
+### Strategy, risk, and inventory safety
 
-- Positive YES position: sell the owned YES quantity to flatten back to zero.
-- Negative YES position: buy the owed YES quantity to flatten back to zero.
-- Zero position: take no inventory action.
+`decide_quotes()` is pure and deterministic. It requires a complete two-sided YES book and produces a bid and ask at the configured quantity; incomplete books produce no quote.
 
-It accepts only finite `Decimal` positions. `can_flatten_inventory()` reuses
-the existing open-market and freshness rules. The lifecycle can therefore
-attempt a flatten only from fresh data while the market is still tradable.
+`evaluate_quote_risk()` requires an open, fresh market and checks projected per-market exposure and available balance before an execution plan can contain new quotes. Quote reservation conservatively assumes both proposed sides can expose the account at once.
 
-`create_flattening_order_intent()` is also pure. It sells long YES inventory at
-the best YES bid or buys short YES inventory at the best YES ask. It rejects a
-ticker/snapshot mismatch, a closed market, a non-positive quantity, or an
-absent matching price level.
+Day 21 adds inventory flattening safeguards. When reconciliation identifies open YES inventory that should be removed, it cancels the relevant resting quote before submitting the flattening intent. Long YES inventory is flattened by selling YES; short YES inventory is flattened by buying YES. This prevents a resting quote from increasing the directional position while the bot is trying to remove it.
 
-Flattening intents are deliberately different from normal market-making quotes:
+### Planning, execution, cancellation, and reconciliation
 
-- `post_only=False` permits taking available liquidity.
-- `IMMEDIATE_OR_CANCEL` fills immediately up to the requested quantity and
-  cancels any unfilled remainder instead of leaving a new resting order.
+`create_execution_plan()` maps approved quotes to immutable intents. `submit_execution_plan()` is disabled unless explicitly enabled, uses unique client order IDs, and cleans up earlier successful submissions in reverse order if a later submission fails. Multiple failures remain visible through `ExceptionGroup`.
 
-The execution model carries these settings explicitly. Existing quote intents
-retain the safe defaults: post-only and good-till-canceled.
+Resting-order retrieval is paginated and rejects repeated cursors. Reconciliation considers only session-owned client order IDs, cancels unwanted orders, preserves matching desired orders, submits missing intents, and does not replace a quote when prerequisite cancellation fails or is disabled.
 
-### Planning, submission, cancellation, and reconciliation
+The independent `cancel_orders` command remains a separately gated kill switch. It cannot reverse an order that has already filled.
 
-`create_execution_plan()` maps approved two-sided quotes into immutable BUY and
-SELL intents. Rejected quote-risk decisions create empty plans.
+### Bounded lifecycle and controlled demo order
 
-When non-zero inventory is present and the inventory guard approves, the
-lifecycle replaces the normal quote plan with a single flattening intent.
-Reconciliation sees an IOC/non-post-only flattening intent as distinct from any
-resting quote, even if its market, side, price, and quantity coincide. It first
-cancels session-owned resting orders and only then submits the flattening order
-when both actions are enabled.
+`run_demo_lifecycle()` runs the configured market for a bounded cycle count and waits only between cycles. Every run has one shared `kbot-...` session prefix. `retrieve_demo_api_data()` obtains market data, positions, and balance before risk evaluation and reconciliation.
 
-`submit_execution_plan()` does nothing when submission is disabled. When
-enabled, it creates unique client order IDs, submits sequentially, and cancels
-earlier successful submissions in reverse order if a later submission fails.
-Combined submission and cleanup failures remain visible in an `ExceptionGroup`.
-
-### Bounded single-market lifecycle
-
-`run_demo_lifecycle()` defaults to one cycle, runs only the configured market,
-and waits only between cycles. Every run has one `kbot-...` session prefix
-reused for that run's client order IDs.
-
-During each cycle, `retrieve_demo_api_data()` retrieves market data, positions,
-and balance. Confirmed position and balance values feed the relevant decision
-layers before reconciliation. The lifecycle uses one timestamp for the quote
-risk and inventory-freshness checks in a cycle.
-
-A Python `finally` block—the equivalent of C# `finally`—performs session-scoped
-cleanup after normal completion or a lifecycle error, provided cancellation is
-explicitly enabled.
-
-### Controlled demo-order verification
-
-`kalshi_bot.demo_order` remains separate from the normal lifecycle. It requires
-both action flags, creates one minimum post-only demo order, logs the local and
-exchange order IDs, immediately cancels the exchange order ID, and closes the
-HTTP client.
+A `finally` block performs session-scoped cleanup after normal completion or a lifecycle error when cancellation is enabled. `kalshi_bot.demo_order` remains a separate, intentionally limited create-and-immediately-cancel verification command.
 
 ## Safety posture
 
 Implemented safeguards:
 
-- Demo environment only; write paths remain disabled by default.
-- Configured ticker, positive quantity, bounded cycles, and session isolation.
-- Open-market and fresh-observation gates before normal quotes and inventory
-  flattening are planned.
-- $5.00 projected per-market exposure cap and $10.00 balance floor for normal
-  quotes.
-- Conservative reservation of both sides of a proposed quote.
-- Post-only and cancel-on-pause normal quote behavior.
-- Non-post-only immediate-or-cancel flattening behavior.
-- Session-scoped cleanup, independently gated cancellation, and reverse-order
-  cleanup after partial submission failure.
-- Aggregated cleanup failures using `ExceptionGroup`.
-- Typed, mocked tests around all write-capable paths.
+- Demo environment only; write paths are disabled by default.
+- Open-market, fresh-observation, exposure, and available-balance gates.
+- Conservative two-sided quote reservation.
+- Post-only and cancel-on-pause order behavior.
+- Inventory flattening cancels conflicting resting quotes first.
+- Session-scoped reconciliation and cleanup.
+- Independently gated global cancellation.
+- Reverse-order cleanup after partial submission failure.
+- Aggregated cancellation failures through `ExceptionGroup`.
+- Bounded retries only for idempotent read requests.
+- Explicit no-retry protection for order creation and cancellation.
+- Typed, mocked tests around all write-capable behavior.
 
 Important remaining limitations:
 
-- An IOC flattening attempt can partially fill. The next bounded cycle may
-  attempt to flatten the remaining position while the market is still open.
-- If a market is closed, paused, stale, or lacks matching liquidity, the bot
-  cannot safely create a flattening intent.
-- No timeout/retry/backoff/rate-limit policy, durable restart recovery,
-  portfolio-wide exposure limit, drawdown circuit breaker, alerting, or
-  completed supervised demo soak test yet.
+- A cancellation or flattening order can still arrive after a partial or full fill.
+- There is no durable restart recovery or persisted fill/order state.
+- There are no portfolio-wide exposure, drawdown, or daily-loss circuit breakers.
+- There is no alerting, deployment, or completed sustained demo soak test.
+- Only `429` response-rate limiting is retried; other HTTP error responses are intentionally surfaced immediately for now.
 
 ## Testing and quality gate
 
-The latest complete local suite passed with **206 tests**.
+The latest full suite passed with **224 tests**.
 
-Day 21 coverage includes long, short, zero, invalid, and non-finite inventory
-positions; best-bid/best-ask flattening prices; closed, stale, mismatched, and
-unpriceable safety cases; non-post-only IOC request mapping; reconciliation of
-resting quotes versus flattening intents; cancellation-before-flattening
-ordering; and lifecycle selection of a flattening plan.
+Coverage includes typed API models and request boundaries, configuration validation, market-data building, quote decisions, risk gates, inventory flattening, pagination, cancellation, partial-submission cleanup, reconciliation, bounded lifecycle behavior, session cleanup, and the controlled demo-order flow.
 
-The Day 21 quality gate passed:
+Day 22 additionally covers:
+
+- transport recovery, exponential backoff, and retry exhaustion;
+- `429` retry and exhaustion;
+- valid, malformed, and negative `Retry-After` handling;
+- every supported GET method using the retry helper;
+- exactly-one-attempt behavior for create and cancel writes.
+
+Final validation:
 
 ```powershell
 uv run ruff format --check .
@@ -197,8 +137,7 @@ uv run ruff check .
 uv run python -m pytest
 ```
 
-Expected result: Ruff formatting and lint checks complete successfully, and
-pytest reports `206 passed`.
+Expected result: Ruff formatting and lint checks complete successfully, and pytest reports `224 passed`.
 
 ## Completed checkpoints
 
@@ -222,20 +161,25 @@ pytest reports `206 passed`.
 | 16 | Resting-order pagination, independent kill switch, and cancellation logging | 101 |
 | 17 | Isolated demo command, corrected event-order IDs, and live verification | 124 |
 | 18 | Resting-order reconciliation and `main.py` lifecycle integration | 148 |
-| 19 | Bounded configured lifecycle, session ownership, and shutdown cleanup | 165 |
-| 20 | Fresh-market, projected-exposure, and projected-balance safeguards | 184 |
-| 21 | Inventory detection, IOC flattening, and cancel-before-flatten ordering | 206 |
+| 19 | Bounded lifecycle, session ownership, and shutdown cleanup | 165 |
+| 20 | Fresh-data, projected-exposure, and projected-balance safeguards | 184 |
+| 21 | Inventory flattening and pre-flatten quote-cancellation safety | 206 |
+| 22 | Read-only retry, backoff, rate-limit handling, and write no-retry guarantees | 224 |
 
 ## Remaining development
 
 ### Milestone 1: reliable bounded demo lifecycle
 
-Estimated remaining work: **1–2 focused development days**, followed by a
-deliberately bounded supervised demo exercise.
+Estimated remaining work: **one focused development day**, followed by a deliberately bounded supervised demo exercise.
 
-1. Add timeout, retry, exponential-backoff, and rate-limit handling.
-2. Add cycle summaries, fault-injection tests, error alerts, and a bounded live
-   demo exercise.
+**Day 23 — operational visibility and fault-injection coverage**
+
+1. Structured per-cycle outcome summaries: market-data result, risk reason, reconciliation actions, submission outcome, and inventory state.
+2. Clear structured error logging for exhausted read retries and failed reconciliation actions, without leaking credentials or request bodies.
+3. Lifecycle-level fault-injection tests: a transient GET failure is recoverable; an exhausted failure is observable and leaves client/session cleanup in a safe state.
+4. A concise runbook for a bounded, supervised demo-lifecycle exercise.
+
+This is a moderate workload: roughly **8–12 focused tests**, several structured-log events, and no new order type or expanded live-trading authority.
 
 ### Milestone 2: reliable unattended demo operation
 
@@ -248,8 +192,7 @@ Estimated additional work: **4–7 development days** after Milestone 1.
 
 ### Milestone 3: small live-money pilot
 
-Estimated additional work: **5–10 development days**, plus a deliberate demo
-soak period, after Milestone 2.
+Estimated additional work: **5–10 development days**, plus a deliberate demo soak period, after Milestone 2.
 
 - Deployment, monitoring, and credential-rotation procedures.
 - Deployed kill-switch verification.
@@ -257,23 +200,15 @@ soak period, after Milestone 2.
 
 ## Overall progress estimate
 
-- **About 94–97% complete** toward a bounded, supervised single-market demo.
-- **About 72–80% complete** toward a reliable unattended demo bot.
-- **About 58–68% complete** toward a responsibly supervised live-money pilot.
-
-## Next checkpoint
-
-Day 22 should focus on resilient API operations: bounded timeouts, retry and
-exponential-backoff policy, rate-limit handling, and tests that prove failures
-remain visible without creating duplicate orders.
+- **96–98% complete** toward a bounded, supervised single-market demo.
+- **74–82% complete** toward a reliable unattended demo bot.
+- **58–68% complete** toward a responsibly supervised live-money pilot.
 
 ## Working preferences
 
 - Explain Python concepts through C# comparisons where useful.
 - Explain every PowerShell command, argument, operator, and symbol.
-- Continue using incremental TDD checkpoints.
+- Continue with incremental TDD checkpoints and identify each test type.
 - The user manually types project code.
-- Bundle routine formatting, linting, and full-suite commands when practical.
-- Do not advance a write-capable checkpoint until the preceding safety and test
-  foundation passes.
+- Do not advance a write-capable checkpoint until the preceding safety and test foundation passes.
 
