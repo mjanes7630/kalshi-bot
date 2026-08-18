@@ -24,7 +24,7 @@ async def recover_interrupted_lifecycle(
         ticker=lifecycle_state.ticker,
     )
 
-    cancellation_errors = []
+    cancellation_errors: list[Exception] = []
 
     for order in resting_orders:
         if order.client_order_id is not None and order.client_order_id.startswith(

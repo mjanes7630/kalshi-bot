@@ -2,16 +2,15 @@ import asyncio
 from decimal import Decimal
 from uuid import uuid4
 
-import httpx
 import structlog
 
-from kalshi_bot.api.auth import load_private_key
-from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
+from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.api.models import (
     CreateOrderRequest,
     CreateOrderResponse,
     KalshiOrderSide,
 )
+from kalshi_bot.api.session import authenticated_kalshi_client
 from kalshi_bot.config import Settings
 from kalshi_bot.logging_config import configure_logging
 
@@ -48,12 +47,6 @@ async def run_demo_order(settings: Settings) -> CreateOrderResponse | None:
     if not settings.order_submission_enabled or not settings.order_cancellation_enabled:
         return
 
-    if settings.api_key_id is None:
-        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
-
-    if settings.private_key_path is None:
-        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
-
     if not settings.demo_order_ticker or not settings.demo_order_ticker.strip():
         raise ValueError("KALSHI_BOT_DEMO_ORDER_TICKER is required.")
 
@@ -74,18 +67,7 @@ async def run_demo_order(settings: Settings) -> CreateOrderResponse | None:
 
     logger.info("demo_order_command_ready")
 
-    private_key = load_private_key(settings.private_key_path)
-
-    async with httpx.AsyncClient(
-        base_url=KALSHI_API_BASE_URL,
-        timeout=httpx.Timeout(10.0),
-    ) as http_client:
-        client = KalshiClient(
-            http_client,
-            api_key_id=settings.api_key_id,
-            private_key=private_key,
-        )
-
+    async with authenticated_kalshi_client(settings) as client:
         response = await verify_demo_order(
             client=client,
             order_request=CreateOrderRequest(  # type: ignore

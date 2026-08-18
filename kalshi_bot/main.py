@@ -6,8 +6,8 @@ from uuid import uuid4
 import httpx
 import structlog
 
-from kalshi_bot.api.auth import load_private_key
-from kalshi_bot.api.client import KALSHI_API_BASE_URL, KalshiClient
+from kalshi_bot.api.client import KalshiClient
+from kalshi_bot.api.session import authenticated_kalshi_client
 from kalshi_bot.config import Settings
 from kalshi_bot.execution.cancellation import retrieve_all_resting_orders
 from kalshi_bot.execution.inventory import (
@@ -288,24 +288,7 @@ async def cancel_demo_lifecycle_orders(
 
 
 async def run_demo_lifecycle(settings: Settings) -> None:
-    if settings.api_key_id is None:
-        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
-
-    if settings.private_key_path is None:
-        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
-
-    private_key = load_private_key(settings.private_key_path)
-
-    async with httpx.AsyncClient(
-        base_url=KALSHI_API_BASE_URL,
-        timeout=10.0,
-    ) as http_client:
-        client = KalshiClient(
-            http_client,
-            api_key_id=settings.api_key_id,
-            private_key=private_key,
-        )
-
+    async with authenticated_kalshi_client(settings) as client:
         await recover_demo_lifecycle(
             settings,
             client=client,

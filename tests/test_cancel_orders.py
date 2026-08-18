@@ -79,15 +79,15 @@ def test_run_order_cancellation_calls_cancellation_when_enabled() -> None:
 
     with (
         patch(
-            "kalshi_bot.cancel_orders.load_private_key",
+            "kalshi_bot.api.session.load_private_key",
             return_value=private_key,
         ) as load_private_key_mock,
         patch(
-            "kalshi_bot.cancel_orders.httpx.AsyncClient",
+            "kalshi_bot.api.session.httpx.AsyncClient",
             return_value=async_client_context,
         ) as async_client_mock,
         patch(
-            "kalshi_bot.cancel_orders.KalshiClient",
+            "kalshi_bot.api.session.KalshiClient",
             return_value=kalshi_client,
         ) as client_mock,
         patch(

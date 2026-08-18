@@ -3,7 +3,6 @@ from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
 
-import httpx
 import pytest
 
 from kalshi_bot import demo_order
@@ -187,6 +186,9 @@ def test_run_demo_order_requires_api_key_when_enabled() -> None:
         order_submission_enabled=True,
         order_cancellation_enabled=True,
         private_key_path=Path("test-private-key.pem"),
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("2.00"),
+        demo_order_price=Decimal("0.0200"),
     )
 
     with pytest.raises(
@@ -202,6 +204,9 @@ def test_run_demo_order_requires_private_key_path_when_enabled() -> None:
         api_key_id="test-api-key-id",
         order_submission_enabled=True,
         order_cancellation_enabled=True,
+        demo_order_ticker="TEST-MARKET",
+        demo_order_count=Decimal("2.00"),
+        demo_order_price=Decimal("0.0200"),
     )
 
     with pytest.raises(
@@ -235,15 +240,15 @@ def test_run_demo_order_calls_verification_when_enabled() -> None:
 
     with (
         patch(
-            "kalshi_bot.demo_order.load_private_key",
+            "kalshi_bot.api.session.load_private_key",
             return_value=private_key,
         ) as load_private_key_mock,
         patch(
-            "kalshi_bot.demo_order.httpx.AsyncClient",
+            "kalshi_bot.api.session.httpx.AsyncClient",
             return_value=async_client_context,
         ) as async_client_mock,
         patch(
-            "kalshi_bot.demo_order.KalshiClient",
+            "kalshi_bot.api.session.KalshiClient",
             return_value=kalshi_client,
         ) as client_mock,
         patch(
@@ -268,7 +273,7 @@ def test_run_demo_order_calls_verification_when_enabled() -> None:
     )
     async_client_mock.assert_called_once_with(
         base_url=KALSHI_API_BASE_URL,
-        timeout=httpx.Timeout(10.0),
+        timeout=10.0,
     )
     client_mock.assert_called_once_with(
         http_client,

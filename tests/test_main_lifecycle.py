@@ -791,13 +791,13 @@ def test_run_demo_lifecycle_reuses_one_authenticated_client(
 
     async def run_test() -> None:
         with (
-            patch("kalshi_bot.main.load_private_key") as load_private_key,
+            patch("kalshi_bot.api.session.load_private_key") as load_private_key,
             patch(
-                "kalshi_bot.main.httpx.AsyncClient",
+                "kalshi_bot.api.session.httpx.AsyncClient",
                 return_value=http_client,
             ),
             patch(
-                "kalshi_bot.main.KalshiClient",
+                "kalshi_bot.api.session.KalshiClient",
                 return_value=client,
             ) as kalshi_client,
             patch(
