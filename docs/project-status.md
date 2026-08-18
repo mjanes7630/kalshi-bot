@@ -1,6 +1,6 @@
 # Kalshi Bot Project Status
 
-_Updated: August 17, 2026 — Day 23 complete_
+_Updated: August 17, 2026 — Day 23 complete; next-phase roadmap agreed_
 
 ## Executive summary
 
@@ -198,34 +198,77 @@ Expected result: Ruff formatting and lint checks complete successfully, and pyte
 | 22 | Read-only retry, backoff, rate-limit handling, and write no-retry guarantees | 224 |
 | 23 | Operational observability, API-contract hardening, crossed-book safety, and supervised demo lifecycle verification | 232 |
 
-## Remaining development
+## Agreed next-phase roadmap
 
-### Milestone 1: reliable bounded demo lifecycle
+The project will continue as a single-market system until the single-market demo and live operational controls have proved reliable. GUI work and multi-market foundation work may proceed in parallel, but neither may alter the frozen soak-test or live single-market release without its own review, tests, and release.
 
-Completed through Day 23. The bot has passed both write-disabled and tightly bounded write-enabled supervised demo checks. The next work should focus on improving sustained operational confidence rather than expanding trading scope.
+### Phase 1: automated demo readiness
 
-### Milestone 2: reliable unattended demo operation
+Target: **August 18–24, 2026**.
 
-Estimated additional work: **4–7 development days** after Milestone 1.
+- Add restart recovery drills, durable state where required, health checks, alerts, and deployment procedures.
+- Define a dedicated-PC configuration and a soak-test operational checklist.
+- Retain one configured demo market and all existing fail-closed execution flags.
 
-- Startup recovery and reconciliation drills.
-- Durable order and fill tracking across restarts.
-- Portfolio-wide exposure and daily-loss circuit breakers.
-- Extended demo soak testing, alerts, and operational runbooks.
+### Phase 2: frozen single-market demo soak
 
-### Milestone 3: small live-money pilot
+Target release: **`v0.1.0-demo-soak` on August 25, 2026**.
 
-Estimated additional work: **5–10 development days**, plus a deliberate demo soak period, after Milestone 2.
+- Deploy the exact tagged release to a separate PC.
+- Run one configured demo market continuously for an extended period.
+- Treat the soak deployment as immutable: update it only for a verified safety, reliability, or correctness issue, then cut and redeploy a new tagged release.
+- Record uptime, restarts, errors, cleanup results, and release-specific outcomes.
 
-- Deployment, monitoring, and credential-rotation procedures.
-- Deployed kill-switch verification.
-- One market, minimum size, short supervised sessions.
+### Phase 3: parallel feature branches
+
+While the demo soak runs, development can proceed independently on:
+
+- `feature/gui-dashboard`: a demo-tested GUI for bounded configuration, status, structured logs, start/stop control, and visible safety switches. It must not bypass validation, risk checks, or explicit execution flags.
+- `feature/multi-market-foundation`: architecture and tests for portfolio-wide exposure, balance reservation, persistent state, market selection, and rate-limit budgeting. This branch does **not** activate multiple markets.
+
+`main` remains the tested single-market integration branch. The soak PC remains on the tagged release rather than tracking `main` or either feature branch.
+
+### Phase 4: supervised single-market live trial
+
+Entry criteria: a clean demo soak, validated operations/runbook, and a demo-tested GUI if it is included in the release.
+
+- Create a new approved single-market release from tested code.
+- Use one market, minimum practical limits, active monitoring, and an immediate stop path.
+- Keep credentials outside source control and retain exclusive control of enabling live orders.
+- Fix any issue through the normal branch, test, release, and redeployment process; do not patch the running machine ad hoc.
+
+### Phase 5: automated single-market live operation
+
+After a stable supervised live trial, prove that the bot can run with minimal intervention while preserving monitoring, restart recovery, alerting, reconciliation, and stop controls.
+
+### Phase 6: multi-market rollout
+
+Only after stable single-market live operation:
+
+1. Run supervised multi-market testing in the demo environment.
+2. Validate portfolio-wide limits, state recovery, rate-limit behavior, and operational visibility.
+3. Begin a tightly limited, carefully monitored multi-market live trial.
+
+## Optimistic calendar targets
+
+These dates are planning targets, not permission to skip a safety gate.
+
+| Target date | Planned outcome |
+|---|---|
+| August 24, 2026 | Automated demo readiness complete |
+| August 25, 2026 | `v0.1.0-demo-soak` deployed to dedicated PC |
+| September 7, 2026 | Two-week clean demo soak and GUI MVP target |
+| September 14, 2026 | Multi-market foundation target complete |
+| September 8–21, 2026 | Supervised tiny-limit single-market live trial target |
+| September 22–October 5, 2026 | Automated single-market live-operation target |
+| October 6–26, 2026 | Supervised multi-market demo target |
+| October 27, 2026 onward | Earliest careful multi-market live-trial target |
 
 ## Overall progress estimate
 
 - **100% complete** toward a bounded, supervised single-market demo.
-- **74–82% complete** toward a reliable unattended demo bot.
-- **58–68% complete** toward a responsibly supervised live-money pilot.
+- **74–82% complete** toward a reliable unattended single-market demo bot.
+- **58–68% complete** toward a responsibly supervised single-market live-money pilot.
 
 ## Working preferences
 
