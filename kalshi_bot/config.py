@@ -37,3 +37,4 @@ class Settings(BaseSettings):
     demo_max_observed_age_seconds: int = Field(default=30, gt=0)
     demo_max_market_exposure_dollars: Decimal = Field(default=Decimal("5.00"), gt=0)
     demo_min_available_balance_dollars: Decimal = Field(default=Decimal("10.00"), gt=0)
+    demo_lifecycle_state_path: Path = Path("lifecycle-state.json")

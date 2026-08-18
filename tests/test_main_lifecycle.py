@@ -197,11 +197,13 @@ def test_retrieve_demo_api_data_requires_demo_quote_quantity() -> None:
         asyncio.run(retrieve_demo_api_data(settings))
 
 
-def test_run_demo_lifecycle_runs_configured_number_of_cycles() -> None:
+def test_run_demo_lifecycle_runs_configured_number_of_cycles(tmp_path) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 3
     settings.demo_poll_interval_seconds = Decimal("2.50")
     settings.order_cancellation_enabled = False
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
 
     with (
         patch(
@@ -222,11 +224,13 @@ def test_run_demo_lifecycle_runs_configured_number_of_cycles() -> None:
     ]
 
 
-def test_run_demo_lifecycle_does_not_sleep_after_final_cycle() -> None:
+def test_run_demo_lifecycle_does_not_sleep_after_final_cycle(tmp_path) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal("2.50")
     settings.order_cancellation_enabled = False
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
 
     with (
         patch(
@@ -243,11 +247,13 @@ def test_run_demo_lifecycle_does_not_sleep_after_final_cycle() -> None:
     sleep_mock.assert_not_awaited()
 
 
-def test_run_demo_lifecycle_reuses_one_session_prefix_for_every_cycle() -> None:
+def test_run_demo_lifecycle_reuses_one_session_prefix_for_every_cycle(tmp_path) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 3
     settings.demo_poll_interval_seconds = Decimal(0)
     settings.order_cancellation_enabled = False
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
 
     with patch(
         "kalshi_bot.main.retrieve_demo_api_data",
@@ -265,10 +271,15 @@ def test_run_demo_lifecycle_reuses_one_session_prefix_for_every_cycle() -> None:
     assert len(set(prefixes)) == 1
 
 
-def test_run_demo_lifecycle_cleans_up_session_orders_after_final_cycle() -> None:
+def test_run_demo_lifecycle_cleans_up_session_orders_after_final_cycle(
+    tmp_path,
+) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     with (
         patch(
@@ -290,10 +301,13 @@ def test_run_demo_lifecycle_cleans_up_session_orders_after_final_cycle() -> None
     )
 
 
-def test_run_demo_lifecycle_cleans_up_session_orders_when_cycle_fails() -> None:
+def test_run_demo_lifecycle_cleans_up_session_orders_when_cycle_fails(tmp_path) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     cycle_error = RuntimeError("Lifecycle cycle failed.")
 
@@ -481,12 +495,15 @@ def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
     )
 
 
-def test_run_demo_lifecycle_cleans_up_session_orders_when_read_retry_is_exhausted() -> (
-    None
-):
+def test_run_demo_lifecycle_cleans_up_session_orders_when_read_retry_is_exhausted(
+    tmp_path,
+) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     request = httpx.Request(
         "GET",
@@ -523,10 +540,15 @@ def test_run_demo_lifecycle_cleans_up_session_orders_when_read_retry_is_exhauste
     )
 
 
-def test_run_demo_lifecycle_preserves_read_failure_when_session_cleanup_fails() -> None:
+def test_run_demo_lifecycle_preserves_read_failure_when_session_cleanup_fails(
+    tmp_path,
+) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     request = httpx.Request(
         "GET",
@@ -560,10 +582,15 @@ def test_run_demo_lifecycle_preserves_read_failure_when_session_cleanup_fails() 
     assert error.value.exceptions == (retry_error, cleanup_error)
 
 
-def test_run_demo_lifecycle_raises_cleanup_failure_after_successful_cycles() -> None:
+def test_run_demo_lifecycle_raises_cleanup_failure_after_successful_cycles(
+    tmp_path,
+) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     cleanup_error = RuntimeError("Session cleanup failed.")
 
@@ -581,10 +608,13 @@ def test_run_demo_lifecycle_raises_cleanup_failure_after_successful_cycles() -> 
         asyncio.run(run_demo_lifecycle(settings))
 
 
-def test_run_demo_lifecycle_cleans_up_session_orders_when_cancelled() -> None:
+def test_run_demo_lifecycle_cleans_up_session_orders_when_cancelled(tmp_path) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     cancellation_error = asyncio.CancelledError()
 
@@ -609,10 +639,15 @@ def test_run_demo_lifecycle_cleans_up_session_orders_when_cancelled() -> None:
     )
 
 
-def test_run_demo_lifecycle_preserves_cancellation_when_session_cleanup_fails() -> None:
+def test_run_demo_lifecycle_preserves_cancellation_when_session_cleanup_fails(
+    tmp_path,
+) -> None:
     settings = Mock(spec=Settings)
     settings.demo_max_cycles = 1
     settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    settings.order_cancellation_enabled = False
 
     cancellation_error = asyncio.CancelledError()
     cleanup_error = RuntimeError("Session cleanup failed.")
@@ -632,3 +667,154 @@ def test_run_demo_lifecycle_preserves_cancellation_when_session_cleanup_fails() 
 
     assert error.value.message == "Lifecycle cycle and cleanup both failed."
     assert error.value.exceptions == (cancellation_error, cleanup_error)
+
+
+def test_run_demo_lifecycle_persists_session_state_before_first_cycle(
+    tmp_path,
+) -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+    settings.demo_market_ticker = "TEST-MARKET"
+    state_path = tmp_path / "lifecycle-state.json"
+    settings.demo_lifecycle_state_path = state_path
+    settings.order_cancellation_enabled = False
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.main.save_lifecycle_state",
+            ) as save_lifecycle_state,
+            patch(
+                "kalshi_bot.main.retrieve_demo_api_data",
+                new_callable=AsyncMock,
+            ) as retrieve_demo_api_data,
+            patch(
+                "kalshi_bot.main.cancel_demo_lifecycle_orders",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kalshi_bot.main.clear_lifecycle_state",
+            ),
+        ):
+            await run_demo_lifecycle(settings)
+
+        save_lifecycle_state.assert_called_once()
+        lifecycle_state = save_lifecycle_state.call_args.args[0]
+
+        assert lifecycle_state.ticker == "TEST-MARKET"
+        assert lifecycle_state.client_order_id_prefix.startswith("kbot-")
+        assert save_lifecycle_state.call_args.kwargs["state_path"] == state_path
+        retrieve_demo_api_data.assert_awaited_once_with(
+            settings,
+            client_order_id_prefix=lifecycle_state.client_order_id_prefix,
+        )
+
+    asyncio.run(run_test())
+
+
+def test_run_demo_lifecycle_clears_state_after_successful_cleanup(
+    tmp_path,
+) -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+    settings.order_cancellation_enabled = False
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.main.retrieve_demo_api_data",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kalshi_bot.main.cancel_demo_lifecycle_orders",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kalshi_bot.main.clear_lifecycle_state",
+            ) as clear_lifecycle_state,
+        ):
+            await run_demo_lifecycle(settings)
+
+        clear_lifecycle_state.assert_called_once_with(
+            settings.demo_lifecycle_state_path,
+        )
+
+    asyncio.run(run_test())
+
+
+def test_run_demo_lifecycle_clears_state_after_failed_cycle_cleanup_succeeds(
+    tmp_path,
+) -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+    settings.order_cancellation_enabled = True
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+    lifecycle_error = RuntimeError("Cycle failed.")
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.main.retrieve_demo_api_data",
+                new=AsyncMock(side_effect=lifecycle_error),
+            ),
+            patch(
+                "kalshi_bot.main.cancel_demo_lifecycle_orders",
+                new_callable=AsyncMock,
+            ) as cancel_demo_lifecycle_orders,
+            patch(
+                "kalshi_bot.main.clear_lifecycle_state",
+            ) as clear_lifecycle_state,
+            pytest.raises(RuntimeError, match="Cycle failed."),
+        ):
+            await run_demo_lifecycle(settings)
+
+        cancel_demo_lifecycle_orders.assert_awaited_once()
+        clear_lifecycle_state.assert_called_once_with(
+            settings.demo_lifecycle_state_path,
+        )
+
+    asyncio.run(run_test())
+
+
+def test_run_demo_lifecycle_attempts_restart_recovery_before_new_cycle(
+    tmp_path,
+) -> None:
+    settings = Mock(spec=Settings)
+    settings.demo_max_cycles = 1
+    settings.demo_poll_interval_seconds = Decimal(0)
+    settings.order_cancellation_enabled = True
+    settings.demo_market_ticker = "TEST-MARKET"
+    settings.demo_lifecycle_state_path = tmp_path / "lifecycle-state.json"
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.main.recover_demo_lifecycle",
+                new_callable=AsyncMock,
+            ) as recover_demo_lifecycle,
+            patch(
+                "kalshi_bot.main.save_lifecycle_state",
+            ),
+            patch(
+                "kalshi_bot.main.retrieve_demo_api_data",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kalshi_bot.main.cancel_demo_lifecycle_orders",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "kalshi_bot.main.clear_lifecycle_state",
+            ),
+        ):
+            await run_demo_lifecycle(settings)
+
+        recover_demo_lifecycle.assert_awaited_once_with(settings)
+
+    asyncio.run(run_test())

@@ -18,6 +18,12 @@ from kalshi_bot.execution.inventory import (
 from kalshi_bot.execution.lifecycle import reconcile_execution_plan
 from kalshi_bot.execution.models import ExecutionPlan
 from kalshi_bot.execution.planner import create_execution_plan
+from kalshi_bot.execution.recovery import recover_interrupted_lifecycle
+from kalshi_bot.execution.state import (
+    LifecycleState,
+    clear_lifecycle_state,
+    save_lifecycle_state,
+)
 from kalshi_bot.logging_config import configure_logging
 from kalshi_bot.marketdata.builder import build_market_snapshot
 from kalshi_bot.models.market import Market
@@ -316,7 +322,17 @@ async def cancel_demo_lifecycle_orders(
 
 
 async def run_demo_lifecycle(settings: Settings) -> None:
+    await recover_demo_lifecycle(settings)
+
+    if settings.demo_market_ticker is None:
+        raise ValueError("KALSHI_BOT_DEMO_MARKET_TICKER is required.")
+
     client_order_id_prefix = f"kbot-{uuid4().hex[:16]}-"
+    lifecycle_state = LifecycleState(
+        client_order_id_prefix=client_order_id_prefix,
+        ticker=settings.demo_market_ticker,
+    )
+    save_lifecycle_state(lifecycle_state, state_path=settings.demo_lifecycle_state_path)
 
     try:
         for cycle_number in range(settings.demo_max_cycles):
@@ -343,11 +359,46 @@ async def run_demo_lifecycle(settings: Settings) -> None:
                 [lifecycle_error, cleanup_error],
             ) from None
 
+        clear_lifecycle_state(settings.demo_lifecycle_state_path)
         raise
+
     else:
         await cancel_demo_lifecycle_orders(
             settings,
             client_order_id_prefix=client_order_id_prefix,
+        )
+        clear_lifecycle_state(settings.demo_lifecycle_state_path)
+
+
+async def recover_demo_lifecycle(settings: Settings) -> None:
+    if not settings.order_cancellation_enabled:
+        return
+
+    if not settings.demo_lifecycle_state_path.exists():
+        return
+
+    if settings.api_key_id is None:
+        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
+
+    if settings.private_key_path is None:
+        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
+
+    private_key = load_private_key(settings.private_key_path)
+
+    async with httpx.AsyncClient(
+        base_url=KALSHI_API_BASE_URL,
+        timeout=10.0,
+    ) as http_client:
+        client = KalshiClient(
+            http_client,
+            api_key_id=settings.api_key_id,
+            private_key=private_key,
+        )
+
+        await recover_interrupted_lifecycle(
+            client=client,
+            state_path=settings.demo_lifecycle_state_path,
+            order_cancellation_enabled=settings.order_cancellation_enabled,
         )
 
 
