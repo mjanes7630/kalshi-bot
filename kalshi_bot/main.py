@@ -56,131 +56,114 @@ def display_trade_prices(prices: list[Decimal], midpoint: Decimal) -> None:
 async def retrieve_demo_api_data(
     settings: Settings,
     *,
+    client: KalshiClient,
     client_order_id_prefix: str | None = None,
 ) -> None:
-    if settings.api_key_id is None:
-        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
-
-    if settings.private_key_path is None:
-        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
-
     if settings.demo_market_ticker is None:
         raise ValueError("KALSHI_BOT_DEMO_MARKET_TICKER is required.")
 
     if settings.demo_quote_quantity is None:
         raise ValueError("KALSHI_BOT_DEMO_QUOTE_QUANTITY is required.")
 
-    private_key = load_private_key(settings.private_key_path)
+    market_response = await client.get_market(
+        settings.demo_market_ticker,
+    )
 
-    async with httpx.AsyncClient(
-        base_url=KALSHI_API_BASE_URL,
-        timeout=10.0,
-    ) as http_client:
-        client = KalshiClient(
-            http_client,
-            api_key_id=settings.api_key_id,
-            private_key=private_key,
-        )
+    market = market_response.market
 
-        market_response = await client.get_market(
-            settings.demo_market_ticker,
-        )
+    orderbook_response = await client.get_market_orderbook(
+        ticker=market.ticker,
+        depth=5,
+    )
 
-        market = market_response.market
+    trades_response = await client.get_trades(
+        ticker=market.ticker,
+        limit=5,
+    )
 
-        orderbook_response = await client.get_market_orderbook(
+    snapshot = build_market_snapshot(
+        market=market,
+        orderbook_response=orderbook_response,
+        trades_response=trades_response,
+        observed_at=datetime.now(UTC),
+    )
+
+    quote_quantity = settings.demo_quote_quantity
+    max_quote_quantity = settings.demo_quote_quantity
+
+    quote_decision = decide_quotes(
+        snapshot,
+        quote_quantity=quote_quantity,
+    )
+
+    positions = await client.get_positions(ticker=market.ticker, limit=10)
+
+    market_position = next(
+        (
+            position
+            for position in positions.market_positions
+            if position.ticker == market.ticker
+        ),
+        None,
+    )
+
+    market_exposure_dollars = (
+        market_position.market_exposure_dollars
+        if market_position is not None
+        else Decimal("0.00")
+    )
+
+    balance = await client.get_balance()
+
+    now = datetime.now(UTC)
+    risk_decision = evaluate_quote_risk(
+        quote_decision,
+        max_quote_quantity=max_quote_quantity,
+        market_status=snapshot.status,
+        observed_at=snapshot.observed_at,
+        now=now,
+        max_observed_age_seconds=settings.demo_max_observed_age_seconds,
+        market_exposure_dollars=market_exposure_dollars,
+        max_market_exposure_dollars=settings.demo_max_market_exposure_dollars,
+        available_balance_dollars=balance.balance_dollars,
+        minimum_available_balance_dollars=settings.demo_min_available_balance_dollars,
+    )
+
+    execution_plan = create_execution_plan(
+        quote_decision,
+        risk_decision,
+    )
+
+    position = (
+        market_position.position_fp
+        if market_position is not None
+        else Decimal("0.00")
+    )
+    inventory_action = decide_inventory_action(position)
+
+    if inventory_action is not None and can_flatten_inventory(
+        market_status=snapshot.status,
+        observed_at=snapshot.observed_at,
+        now=now,
+        max_observed_age_seconds=settings.demo_max_observed_age_seconds,
+    ):
+        flattening_order_intent = create_flattening_order_intent(
             ticker=market.ticker,
-            depth=5,
+            inventory_action=inventory_action,
+            snapshot=snapshot,
         )
-
-        trades_response = await client.get_trades(
+        execution_plan = ExecutionPlan(
             ticker=market.ticker,
-            limit=5,
+            order_intents=(flattening_order_intent,),
         )
 
-        snapshot = build_market_snapshot(
-            market=market,
-            orderbook_response=orderbook_response,
-            trades_response=trades_response,
-            observed_at=datetime.now(UTC),
-        )
-
-        quote_quantity = settings.demo_quote_quantity
-        max_quote_quantity = settings.demo_quote_quantity
-
-        quote_decision = decide_quotes(
-            snapshot,
-            quote_quantity=quote_quantity,
-        )
-
-        positions = await client.get_positions(ticker=market.ticker, limit=10)
-
-        market_position = next(
-            (
-                position
-                for position in positions.market_positions
-                if position.ticker == market.ticker
-            ),
-            None,
-        )
-
-        market_exposure_dollars = (
-            market_position.market_exposure_dollars
-            if market_position is not None
-            else Decimal("0.00")
-        )
-
-        balance = await client.get_balance()
-
-        now = datetime.now(UTC)
-        risk_decision = evaluate_quote_risk(
-            quote_decision,
-            max_quote_quantity=max_quote_quantity,
-            market_status=snapshot.status,
-            observed_at=snapshot.observed_at,
-            now=now,
-            max_observed_age_seconds=settings.demo_max_observed_age_seconds,
-            market_exposure_dollars=market_exposure_dollars,
-            max_market_exposure_dollars=settings.demo_max_market_exposure_dollars,
-            available_balance_dollars=balance.balance_dollars,
-            minimum_available_balance_dollars=settings.demo_min_available_balance_dollars,
-        )
-
-        execution_plan = create_execution_plan(
-            quote_decision,
-            risk_decision,
-        )
-
-        position = (
-            market_position.position_fp
-            if market_position is not None
-            else Decimal("0.00")
-        )
-        inventory_action = decide_inventory_action(position)
-
-        if inventory_action is not None and can_flatten_inventory(
-            market_status=snapshot.status,
-            observed_at=snapshot.observed_at,
-            now=now,
-            max_observed_age_seconds=settings.demo_max_observed_age_seconds,
-        ):
-            flattening_order_intent = create_flattening_order_intent(
-                ticker=market.ticker,
-                inventory_action=inventory_action,
-                snapshot=snapshot,
-            )
-            execution_plan = ExecutionPlan(
-                ticker=market.ticker,
-                order_intents=(flattening_order_intent,),
-            )
-
-        reconciliation_decision = await reconcile_execution_plan(
-            execution_plan,
-            client=client,
-            order_submission_enabled=settings.order_submission_enabled,
-            order_cancellation_enabled=settings.order_cancellation_enabled,
-            client_order_id_prefix=client_order_id_prefix,
-        )
+    reconciliation_decision = await reconcile_execution_plan(
+        execution_plan,
+        client=client,
+        order_submission_enabled=settings.order_submission_enabled,
+        order_cancellation_enabled=settings.order_cancellation_enabled,
+        client_order_id_prefix=client_order_id_prefix,
+    )
 
     best_yes_bid = snapshot.best_yes_bid
     best_yes_ask = snapshot.best_yes_ask
@@ -283,6 +266,7 @@ async def retrieve_demo_api_data(
 async def cancel_demo_lifecycle_orders(
     settings: Settings,
     *,
+    client: KalshiClient,
     client_order_id_prefix: str,
 ) -> None:
     if not settings.order_cancellation_enabled:
@@ -291,6 +275,19 @@ async def cancel_demo_lifecycle_orders(
     if settings.demo_market_ticker is None:
         return
 
+    resting_orders = await retrieve_all_resting_orders(
+        client=client,
+        ticker=settings.demo_market_ticker,
+    )
+
+    for order in resting_orders:
+        if order.client_order_id is not None and order.client_order_id.startswith(
+            client_order_id_prefix
+        ):
+            await client.cancel_order(order.order_id)
+
+
+async def run_demo_lifecycle(settings: Settings) -> None:
     if settings.api_key_id is None:
         raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
 
@@ -309,97 +306,79 @@ async def cancel_demo_lifecycle_orders(
             private_key=private_key,
         )
 
-        resting_orders = await retrieve_all_resting_orders(
+        await recover_demo_lifecycle(
+            settings,
             client=client,
+        )
+
+        if settings.demo_market_ticker is None:
+            raise ValueError("KALSHI_BOT_DEMO_MARKET_TICKER is required.")
+
+        client_order_id_prefix = f"kbot-{uuid4().hex[:16]}-"
+        lifecycle_state = LifecycleState(
+            client_order_id_prefix=client_order_id_prefix,
             ticker=settings.demo_market_ticker,
         )
+        save_lifecycle_state(
+            lifecycle_state,
+            state_path=settings.demo_lifecycle_state_path,
+        )
 
-        for order in resting_orders:
-            if order.client_order_id is not None and order.client_order_id.startswith(
-                client_order_id_prefix
-            ):
-                await client.cancel_order(order.order_id)
-
-
-async def run_demo_lifecycle(settings: Settings) -> None:
-    await recover_demo_lifecycle(settings)
-
-    if settings.demo_market_ticker is None:
-        raise ValueError("KALSHI_BOT_DEMO_MARKET_TICKER is required.")
-
-    client_order_id_prefix = f"kbot-{uuid4().hex[:16]}-"
-    lifecycle_state = LifecycleState(
-        client_order_id_prefix=client_order_id_prefix,
-        ticker=settings.demo_market_ticker,
-    )
-    save_lifecycle_state(lifecycle_state, state_path=settings.demo_lifecycle_state_path)
-
-    try:
-        for cycle_number in range(settings.demo_max_cycles):
-            await retrieve_demo_api_data(
-                settings,
-                client_order_id_prefix=client_order_id_prefix,
-            )
-
-            is_final_cycle = cycle_number == settings.demo_max_cycles - 1
-
-            if not is_final_cycle:
-                await asyncio.sleep(
-                    float(settings.demo_poll_interval_seconds),
-                )
-    except BaseException as lifecycle_error:
         try:
+            for cycle_number in range(settings.demo_max_cycles):
+                await retrieve_demo_api_data(
+                    settings,
+                    client=client,
+                    client_order_id_prefix=client_order_id_prefix,
+                )
+
+                is_final_cycle = cycle_number == settings.demo_max_cycles - 1
+
+                if not is_final_cycle:
+                    await asyncio.sleep(
+                        float(settings.demo_poll_interval_seconds),
+                    )
+        except BaseException as lifecycle_error:
+            try:
+                await cancel_demo_lifecycle_orders(
+                    settings,
+                    client=client,
+                    client_order_id_prefix=client_order_id_prefix,
+                )
+            except BaseException as cleanup_error:  # noqa: BLE001
+                raise BaseExceptionGroup(
+                    "Lifecycle cycle and cleanup both failed.",
+                    [lifecycle_error, cleanup_error],
+                ) from None
+
+            clear_lifecycle_state(settings.demo_lifecycle_state_path)
+            raise
+
+        else:
             await cancel_demo_lifecycle_orders(
                 settings,
+                client=client,
                 client_order_id_prefix=client_order_id_prefix,
             )
-        except BaseException as cleanup_error:  # noqa: BLE001
-            raise BaseExceptionGroup(
-                "Lifecycle cycle and cleanup both failed.",
-                [lifecycle_error, cleanup_error],
-            ) from None
-
-        clear_lifecycle_state(settings.demo_lifecycle_state_path)
-        raise
-
-    else:
-        await cancel_demo_lifecycle_orders(
-            settings,
-            client_order_id_prefix=client_order_id_prefix,
-        )
-        clear_lifecycle_state(settings.demo_lifecycle_state_path)
+            clear_lifecycle_state(settings.demo_lifecycle_state_path)
 
 
-async def recover_demo_lifecycle(settings: Settings) -> None:
+async def recover_demo_lifecycle(
+    settings: Settings,
+    *,
+    client: KalshiClient,
+) -> None:
     if not settings.order_cancellation_enabled:
         return
 
     if not settings.demo_lifecycle_state_path.exists():
         return
 
-    if settings.api_key_id is None:
-        raise ValueError("KALSHI_BOT_API_KEY_ID is required.")
-
-    if settings.private_key_path is None:
-        raise ValueError("KALSHI_BOT_PRIVATE_KEY_PATH is required.")
-
-    private_key = load_private_key(settings.private_key_path)
-
-    async with httpx.AsyncClient(
-        base_url=KALSHI_API_BASE_URL,
-        timeout=10.0,
-    ) as http_client:
-        client = KalshiClient(
-            http_client,
-            api_key_id=settings.api_key_id,
-            private_key=private_key,
-        )
-
-        await recover_interrupted_lifecycle(
-            client=client,
-            state_path=settings.demo_lifecycle_state_path,
-            order_cancellation_enabled=settings.order_cancellation_enabled,
-        )
+    await recover_interrupted_lifecycle(
+        client=client,
+        state_path=settings.demo_lifecycle_state_path,
+        order_cancellation_enabled=settings.order_cancellation_enabled,
+    )
 
 
 def main() -> None:
