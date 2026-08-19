@@ -828,9 +828,9 @@ def test_run_demo_lifecycle_reuses_one_authenticated_client(
             client=client,
         )
 
-        client_order_id_prefix = (
-            retrieve_demo_api_data.await_args.kwargs["client_order_id_prefix"]
-        )
+        client_order_id_prefix = retrieve_demo_api_data.await_args.kwargs[
+            "client_order_id_prefix"
+        ]
         retrieve_demo_api_data.assert_awaited_once_with(
             settings,
             client=client,

@@ -1,7 +1,7 @@
-import structlog
-import httpx
-
 from dataclasses import dataclass
+
+import httpx
+import structlog
 
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.api.models import KalshiMarketStatus
@@ -25,7 +25,7 @@ async def check_market_health(
     market = market_response.market
 
     return MarketHealth(
-        ticker=ticker,
+        ticker=market.ticker,
         market_status=market.status,
         is_healthy=market.status is KalshiMarketStatus.ACTIVE,
     )
@@ -35,7 +35,7 @@ async def run_market_health_check(
     *,
     client: KalshiClient,
     ticker: str,
-) -> None:
+) -> MarketHealth:
     try:
         market_health = await check_market_health(
             client=client,
@@ -50,11 +50,7 @@ async def run_market_health_check(
         )
         raise
 
-    log_health_result = (
-        logger.info
-        if market_health.is_healthy
-        else logger.warning
-    )
+    log_health_result = logger.info if market_health.is_healthy else logger.warning
     log_health_result(
         "market_health_check_completed",
         ticker=ticker,

@@ -1,7 +1,8 @@
 import asyncio
-import pytest
-import httpx
 from unittest.mock import AsyncMock, Mock, patch
+
+import httpx
+import pytest
 
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.api.models import KalshiMarketStatus

@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -485,3 +486,39 @@ def test_main_runs_demo_order() -> None:
     configure_logging_mock.assert_called_once_with(settings)
     run_demo_order_mock.assert_called_once_with(settings)
     asyncio_run_mock.assert_called_once_with(demo_order_coroutine)
+
+
+def test_run_demo_order_uses_shared_authenticated_client() -> None:
+    settings = Mock(spec=Settings)
+    settings.order_submission_enabled = True
+    settings.order_cancellation_enabled = True
+    settings.demo_order_ticker = "TEST-MARKET"
+    settings.demo_order_count = 1
+    settings.demo_order_price = Decimal("0.0100")
+
+    client = AsyncMock(spec=KalshiClient)
+    received_settings: list[Settings] = []
+
+    @asynccontextmanager
+    async def authenticated_client_stub(received: Settings):
+        received_settings.append(received)
+        yield client
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.demo_order.authenticated_kalshi_client",
+                authenticated_client_stub,
+            ),
+            patch(
+                "kalshi_bot.demo_order.verify_demo_order",
+                new_callable=AsyncMock,
+            ) as verify_demo_order,
+        ):
+            await run_demo_order(settings)
+
+        assert received_settings == [settings]
+        verify_demo_order.assert_awaited_once()
+        assert verify_demo_order.await_args.kwargs["client"] is client
+
+    asyncio.run(run_test())

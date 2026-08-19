@@ -135,9 +135,7 @@ async def retrieve_demo_api_data(
     )
 
     position = (
-        market_position.position_fp
-        if market_position is not None
-        else Decimal("0.00")
+        market_position.position_fp if market_position is not None else Decimal("0.00")
     )
     inventory_action = decide_inventory_action(position)
 

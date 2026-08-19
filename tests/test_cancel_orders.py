@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -172,3 +173,38 @@ def test_run_order_cancellation_logs_when_disabled() -> None:
 
     assert result == ()
     logger.info.assert_called_once_with("order_cancellation_disabled")
+
+
+def test_run_order_cancellation_uses_shared_authenticated_client() -> None:
+    settings = Mock(spec=Settings)
+    settings.order_cancellation_enabled = True
+    settings.demo_market_ticker = "TEST-MARKET"
+
+    client = AsyncMock(spec=KalshiClient)
+    received_settings: list[Settings] = []
+
+    @asynccontextmanager
+    async def authenticated_client_stub(received: Settings):
+        received_settings.append(received)
+        yield client
+
+    async def run_test() -> None:
+        with (
+            patch(
+                "kalshi_bot.cancel_orders.authenticated_kalshi_client",
+                authenticated_client_stub,
+            ),
+            patch(
+                "kalshi_bot.cancel_orders.cancel_all_resting_orders",
+                new_callable=AsyncMock,
+            ) as cancel_all_resting_orders,
+        ):
+            await run_order_cancellation(settings)
+
+        assert received_settings == [settings]
+        cancel_all_resting_orders.assert_awaited_once_with(
+            client=client,
+            order_cancellation_enabled=True,
+        )
+
+    asyncio.run(run_test())
