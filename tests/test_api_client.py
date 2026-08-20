@@ -25,7 +25,9 @@ def test_get_markets_sends_request_and_parses_response() -> None:
         assert request.method == "GET"
         assert request.url.path == "/trade-api/v2/markets"
         assert request.url.params["limit"] == "50"
+        assert request.url.params["status"] == "open"
         assert request.url.params["cursor"] == "current-page-token"
+        assert request.url.params["mve_filter"] == "exclude"
 
         return httpx.Response(
             HTTPStatus.OK,
@@ -55,7 +57,12 @@ def test_get_markets_sends_request_and_parses_response() -> None:
         ) as http_client:
             client = KalshiClient(http_client)
 
-            result = await client.get_markets(limit=50, cursor="current-page-token")
+            result = await client.get_markets(
+                limit=50,
+                cursor="current-page-token",
+                status="open",
+                mve_filter="exclude",
+            )
 
         assert result.cursor == "next-page-token"
         assert len(result.markets) == 1
@@ -1969,5 +1976,64 @@ def test_cancel_order_does_not_retry_transient_connection_failure() -> None:
                 await client.cancel_order("order-123")
 
         assert request_count == 1
+
+    asyncio.run(run_test())
+
+
+def test_get_events_sends_request_and_parses_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/trade-api/v2/events"
+        assert request.url.params["limit"] == "50"
+        assert request.url.params["status"] == "open"
+        assert request.url.params["cursor"] == "current-page-token"
+        assert request.url.params["with_nested_markets"] == "true"
+
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={
+                "events": [
+                    {
+                        "event_ticker": "TEST-EVENT",
+                        "series_ticker": "TEST-SERIES",
+                        "title": "Test event",
+                        "category": "Economics",
+                        "markets": [
+                            {
+                                "ticker": "TEST-MARKET",
+                                "title": "Test market",
+                                "yes_bid_dollars": "0.3700",
+                                "yes_ask_dollars": "0.4200",
+                                "no_bid_dollars": "0.5800",
+                                "no_ask_dollars": "0.6300",
+                                "last_price_dollars": "0.4000",
+                                "status": "active",
+                            },
+                        ],
+                    },
+                ],
+                "cursor": "next-page-token",
+            },
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+
+        async with httpx.AsyncClient(
+            base_url=KALSHI_API_BASE_URL,
+            transport=transport,
+        ) as http_client:
+            client = KalshiClient(http_client)
+
+            result = await client.get_events(
+                limit=50,
+                status="open",
+                cursor="current-page-token",
+                with_nested_markets=True,
+            )
+
+        assert result.cursor == "next-page-token"
+        assert result.events[0].category == "Economics"
+        assert result.events[0].markets[0].ticker == "TEST-MARKET"
 
     asyncio.run(run_test())

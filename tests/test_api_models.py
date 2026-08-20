@@ -7,6 +7,7 @@ from kalshi_bot.api.models import (
     CancelOrderResponse,
     CreateOrderRequest,
     CreateOrderResponse,
+    GetEventsResponse,
     GetMarketOrderbookResponse,
     GetMarketResponse,
     GetMarketsResponse,
@@ -356,3 +357,40 @@ def test_kalshi_market_rejects_unrecognized_status() -> None:
                 "status": "unexpected_status",
             }
         )
+
+
+def test_get_events_response_parses_event_category_and_nested_markets() -> None:
+    response = GetEventsResponse.model_validate(
+        {
+            "events": [
+                {
+                    "event_ticker": "TEST-EVENT",
+                    "series_ticker": "TEST-SERIES",
+                    "title": "Test event",
+                    "category": "Economics",
+                    "markets": [
+                        {
+                            "ticker": "TEST-MARKET",
+                            "title": "Test market",
+                            "yes_bid_dollars": "0.4200",
+                            "yes_ask_dollars": "0.4300",
+                            "no_bid_dollars": "0.5700",
+                            "no_ask_dollars": "0.5800",
+                            "last_price_dollars": "0.4250",
+                            "status": "active",
+                        },
+                    ],
+                },
+            ],
+            "cursor": "next-page",
+        },
+    )
+
+    assert response.cursor == "next-page"
+    assert len(response.events) == 1
+
+    event = response.events[0]
+    assert event.event_ticker == "TEST-EVENT"
+    assert event.series_ticker == "TEST-SERIES"
+    assert event.category == "Economics"
+    assert event.markets[0].ticker == "TEST-MARKET"

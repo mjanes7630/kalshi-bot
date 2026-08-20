@@ -153,3 +153,37 @@ def test_skips_quotes_when_yes_book_is_crossed(
         reason=QuoteDecisionReason.CROSSED_BOOK,
     )
     assert decision.should_quote is False
+
+
+def test_skips_quotes_when_yes_spread_exceeds_configured_limit(
+    snapshot: MarketSnapshot,
+) -> None:
+    wide_spread_snapshot = replace(
+        snapshot,
+        yes_bids=(
+            OrderBookLevel(
+                price=Decimal("0.0100"),
+                quantity=Decimal("13.00"),
+            ),
+        ),
+        yes_asks=(
+            OrderBookLevel(
+                price=Decimal("0.9900"),
+                quantity=Decimal("17.00"),
+            ),
+        ),
+    )
+
+    decision = decide_quotes(
+        wide_spread_snapshot,
+        quote_quantity=Decimal("2.00"),
+        max_yes_spread_dollars=Decimal("0.05"),
+    )
+
+    assert decision == QuoteDecision(
+        ticker="TEST-MARKET",
+        yes_bid=None,
+        yes_ask=None,
+        reason=QuoteDecisionReason.WIDE_SPREAD,
+    )
+    assert decision.should_quote is False

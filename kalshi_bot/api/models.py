@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KalshiMarketStatus(StrEnum):
@@ -41,6 +41,23 @@ class GetMarketResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     market: KalshiMarket
+
+
+class KalshiEvent(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    event_ticker: str
+    series_ticker: str
+    title: str
+    category: str
+    markets: list[KalshiMarket] = Field(default_factory=list)
+
+
+class GetEventsResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    events: list[KalshiEvent]
+    cursor: str
 
 
 class KalshiOrderbook(BaseModel):

@@ -11,6 +11,7 @@ from kalshi_bot.api.models import (
     CreateOrderRequest,
     CreateOrderResponse,
     GetBalanceResponse,
+    GetEventsResponse,
     GetMarketOrderbookResponse,
     GetMarketResponse,
     GetMarketsResponse,
@@ -84,11 +85,19 @@ class KalshiClient:
         *,
         limit: int = 100,
         cursor: str | None = None,
+        status: str | None = None,
+        mve_filter: str | None = None,
     ) -> GetMarketsResponse:
         params: dict[str, int | str] = {"limit": limit}
 
         if cursor is not None:
             params["cursor"] = cursor
+
+        if status is not None:
+            params["status"] = status
+
+        if mve_filter is not None:
+            params["mve_filter"] = mve_filter
 
         response = await self._get_with_retry(
             "markets",
@@ -97,6 +106,33 @@ class KalshiClient:
         response.raise_for_status()
 
         return GetMarketsResponse.model_validate(response.json())
+
+    async def get_events(
+        self,
+        *,
+        limit: int = 100,
+        status: str | None = None,
+        cursor: str | None = None,
+        with_nested_markets: bool = False,
+    ) -> GetEventsResponse:
+        params: dict[str, int | str] = {"limit": limit}
+
+        if status is not None:
+            params["status"] = status
+
+        if cursor is not None:
+            params["cursor"] = cursor
+
+        if with_nested_markets:
+            params["with_nested_markets"] = "true"
+
+        response = await self._get_with_retry(
+            "events",
+            params=params,
+        )
+        response.raise_for_status()
+
+        return GetEventsResponse.model_validate(response.json())
 
     async def get_market(
         self,

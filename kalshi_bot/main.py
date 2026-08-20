@@ -94,6 +94,7 @@ async def retrieve_demo_api_data(
     quote_decision = decide_quotes(
         snapshot,
         quote_quantity=quote_quantity,
+        max_yes_spread_dollars=settings.demo_max_yes_spread_dollars,
     )
 
     positions = await client.get_positions(ticker=market.ticker, limit=10)

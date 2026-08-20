@@ -62,6 +62,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     settings.demo_max_observed_age_seconds = 30
     settings.demo_max_market_exposure_dollars = Decimal("5.00")
     settings.demo_min_available_balance_dollars = Decimal("10.00")
+    settings.demo_max_yes_spread_dollars = Decimal("0.03")
 
     market = Mock()
     market.ticker = "TEST-MARKET"
@@ -144,6 +145,7 @@ def test_retrieve_demo_api_data_uses_configured_market_and_quantity() -> None:
     decide_quotes_mock.assert_called_once_with(
         snapshot,
         quote_quantity=Decimal("2.00"),
+        max_yes_spread_dollars=Decimal("0.03"),
     )
 
     evaluate_quote_risk_mock.assert_called_once_with(
@@ -387,6 +389,7 @@ def test_retrieve_demo_api_data_reconciles_inventory_flattening_order() -> None:
     settings.demo_max_observed_age_seconds = 30
     settings.demo_max_market_exposure_dollars = Decimal("5.00")
     settings.demo_min_available_balance_dollars = Decimal("10.00")
+    settings.demo_max_yes_spread_dollars = Decimal("0.03")
 
     market = Mock()
     market.ticker = "TEST-MARKET"
