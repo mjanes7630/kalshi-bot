@@ -22,6 +22,8 @@ from kalshi_bot.execution.recovery import recover_interrupted_lifecycle
 from kalshi_bot.execution.state import (
     LifecycleState,
     clear_lifecycle_state,
+    load_lifecycle_state,
+    remove_submitted_order_id,
     save_lifecycle_state,
 )
 from kalshi_bot.logging_config import configure_logging
@@ -162,6 +164,7 @@ async def retrieve_demo_api_data(
         order_submission_enabled=settings.order_submission_enabled,
         order_cancellation_enabled=settings.order_cancellation_enabled,
         client_order_id_prefix=client_order_id_prefix,
+        lifecycle_state_path=settings.demo_lifecycle_state_path,
     )
 
     best_yes_bid = snapshot.best_yes_bid
@@ -274,6 +277,33 @@ async def cancel_demo_lifecycle_orders(
     if settings.demo_market_ticker is None:
         return
 
+    state_path = settings.demo_lifecycle_state_path
+
+    if state_path.exists():
+        lifecycle_state = load_lifecycle_state(state_path)
+
+        if lifecycle_state.submitted_order_ids:
+            cancellation_errors: list[Exception] = []
+
+            for order_id in lifecycle_state.submitted_order_ids:
+                try:
+                    await client.cancel_order(order_id)
+                except BaseException as error:  # noqa: BLE001
+                    cancellation_errors.append(error)
+                else:
+                    remove_submitted_order_id(
+                        order_id=order_id,
+                        state_path=state_path,
+                    )
+
+            if cancellation_errors:
+                raise BaseExceptionGroup(
+                    "One or more lifecycle order cancellations failed.",
+                    cancellation_errors,
+                )
+
+            return
+
     resting_orders = await retrieve_all_resting_orders(
         client=client,
         ticker=settings.demo_market_ticker,
@@ -306,8 +336,25 @@ async def run_demo_lifecycle(settings: Settings) -> None:
             state_path=settings.demo_lifecycle_state_path,
         )
 
+        logger.info(
+            "demo_lifecycle_started",
+            ticker=settings.demo_market_ticker,
+            max_cycles=settings.demo_max_cycles,
+            poll_interval_seconds=str(settings.demo_poll_interval_seconds),
+            order_submission_enabled=settings.order_submission_enabled,
+            order_cancellation_enabled=settings.order_cancellation_enabled,
+            client_order_id_prefix=client_order_id_prefix,
+        )
+
         try:
             for cycle_number in range(settings.demo_max_cycles):
+                logger.info(
+                    "demo_lifecycle_cycle_started",
+                    ticker=settings.demo_market_ticker,
+                    cycle_number=cycle_number + 1,
+                    max_cycles=settings.demo_max_cycles,
+                )
+
                 await retrieve_demo_api_data(
                     settings,
                     client=client,
@@ -321,6 +368,13 @@ async def run_demo_lifecycle(settings: Settings) -> None:
                         float(settings.demo_poll_interval_seconds),
                     )
         except BaseException as lifecycle_error:
+            logger.error(
+                "demo_lifecycle_cycle_failed",
+                ticker=settings.demo_market_ticker,
+                error=str(lifecycle_error),
+                error_type=type(lifecycle_error).__name__,
+            )
+
             try:
                 await cancel_demo_lifecycle_orders(
                     settings,
@@ -328,12 +382,20 @@ async def run_demo_lifecycle(settings: Settings) -> None:
                     client_order_id_prefix=client_order_id_prefix,
                 )
             except BaseException as cleanup_error:  # noqa: BLE001
+                logger.error(
+                    "demo_lifecycle_cleanup_failed",
+                    ticker=settings.demo_market_ticker,
+                    error=str(cleanup_error),
+                    error_type=type(cleanup_error).__name__,
+                )
+
                 raise BaseExceptionGroup(
                     "Lifecycle cycle and cleanup both failed.",
                     [lifecycle_error, cleanup_error],
                 ) from None
 
-            clear_lifecycle_state(settings.demo_lifecycle_state_path)
+            if settings.order_cancellation_enabled:
+                clear_lifecycle_state(settings.demo_lifecycle_state_path)
             raise
 
         else:
@@ -342,7 +404,16 @@ async def run_demo_lifecycle(settings: Settings) -> None:
                 client=client,
                 client_order_id_prefix=client_order_id_prefix,
             )
-            clear_lifecycle_state(settings.demo_lifecycle_state_path)
+            if settings.order_cancellation_enabled:
+                clear_lifecycle_state(settings.demo_lifecycle_state_path)
+
+            logger.info(
+                "demo_lifecycle_completed",
+                ticker=settings.demo_market_ticker,
+                completed_cycles=settings.demo_max_cycles,
+                order_submission_enabled=settings.order_submission_enabled,
+                order_cancellation_enabled=settings.order_cancellation_enabled,
+            )
 
 
 async def recover_demo_lifecycle(
@@ -355,11 +426,24 @@ async def recover_demo_lifecycle(
 
     if not settings.demo_lifecycle_state_path.exists():
         return
+    try:
+        await recover_interrupted_lifecycle(
+            client=client,
+            state_path=settings.demo_lifecycle_state_path,
+            order_cancellation_enabled=settings.order_cancellation_enabled,
+        )
+    except BaseException as recovery_error:
+        logger.error(
+            "demo_lifecycle_recovery_failed",
+            ticker=settings.demo_market_ticker,
+            error=str(recovery_error),
+            error_type=type(recovery_error).__name__,
+        )
+        raise
 
-    await recover_interrupted_lifecycle(
-        client=client,
-        state_path=settings.demo_lifecycle_state_path,
-        order_cancellation_enabled=settings.order_cancellation_enabled,
+    logger.info(
+        "demo_lifecycle_recovery_completed",
+        ticker=settings.demo_market_ticker,
     )
 
 

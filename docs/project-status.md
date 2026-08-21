@@ -1,6 +1,6 @@
 # Kalshi Bot Project Status
 
-_Updated: August 18, 2026 — Day 24 complete_
+_Updated: August 20, 2026 — Day 24 complete_
 
 ## Executive summary
 
@@ -8,7 +8,7 @@ The bot now has a typed, tested path from Kalshi demo-market data through quote 
 
 `Kalshi API -> typed API models -> MarketSnapshot -> QuoteDecision -> position + balance risk gates -> ExecutionPlan -> session-scoped reconciliation -> inventory flattening -> flag-gated execution -> bounded polling -> session cleanup -> structured logs`
 
-Day 24 adds a shared authenticated-client lifetime model, lifecycle state recovery, and an independently runnable market health check. The latest complete local suite passes with **262 tests**. Ruff formatting and linting pass. Order submission and cancellation remain disabled by default in the private `.env`.
+Day 24 now also closes the durable-order cleanup gap exposed by the demo API's eventually consistent resting-orders endpoint. Every accepted order ID is persisted immediately, then cancelled directly by that returned exchange ID. Partial submission, partial cleanup, restart recovery, and cancellation-disabled runs all preserve exactly the state needed for a safe later recovery. The lifecycle also emits explicit start, per-cycle, completion, failure, cleanup-failure, and recovery outcome logs. The latest complete local suite passes with **307 tests**. Ruff formatting and linting pass. Order submission and cancellation remain disabled by default in the private `.env`.
 
 ## Environment
 
@@ -102,6 +102,14 @@ Before its first cycle, the lifecycle persists the active session prefix and tic
 
 A lifecycle cancellation or another `BaseException` still triggers session-scoped cleanup. If both the lifecycle and cleanup fail, both failures are preserved in an `ExceptionGroup` or `BaseExceptionGroup` instead of allowing cleanup to hide the original failure. `kalshi_bot.demo_order` remains a separate, intentionally limited create-and-immediately-cancel verification command.
 
+#### Durable submitted-order state and operational lifecycle logs
+
+`lifecycle-state.json` now stores the current session prefix, ticker, and every exchange `order_id` returned by a successful order POST. The ID is recorded before the next submission begins. Normal shutdown and restart recovery cancel these known IDs directly rather than relying on the eventually consistent resting-orders listing endpoint. Each successful cancellation removes only that ID from state; after a partial failure, only unresolved IDs remain for the next recovery attempt. When cancellation is intentionally disabled, the state is retained instead of being discarded.
+
+The lifecycle emits structured operational events: `demo_lifecycle_started`, `demo_lifecycle_cycle_started`, `demo_lifecycle_completed`, `demo_lifecycle_cycle_failed`, `demo_lifecycle_cleanup_failed`, `demo_lifecycle_recovery_completed`, and `demo_lifecycle_recovery_failed`.
+
+Controlled demo verification on August 20, 2026 confirmed two `201 Created` event-order responses followed by two direct `200 OK` DELETE responses using the returned order IDs. A subsequent disabled-flags run confirmed the lifecycle completion logging without placing or cancelling an order.
+
 ### Read-only market health check
 
 `check_market_health()` retrieves one configured market and returns an immutable `MarketHealth` result containing the returned ticker, Kalshi market status, and an `is_healthy` flag. Only `ACTIVE` is healthy for trading.
@@ -146,6 +154,8 @@ Implemented safeguards:
 - Safe HTTP error diagnostics.
 - Shared authenticated-client construction and guaranteed HTTP cleanup.
 - Independently runnable read-only market health verification.
+- Durable returned-order ID persistence and direct-ID cleanup/recovery.
+- Structured lifecycle start, cycle, completion, failure, cleanup, and recovery logs.
 
 Important remaining limitations:
 
@@ -157,7 +167,7 @@ Important remaining limitations:
 
 ## Testing and quality gate
 
-The latest full suite passed with **262 tests**.
+The latest full suite passed with **307 tests**.
 
 Coverage includes typed API models and request boundaries, configuration validation, market-data building, quote decisions, risk gates, inventory flattening, pagination, cancellation, partial-submission cleanup, reconciliation, bounded lifecycle behavior, session cleanup, controlled demo-order flow, and read-only retry behavior.
 
@@ -169,6 +179,10 @@ Day 24 additionally covers:
 - active and non-active market health evaluation;
 - health-check logging for successful, non-active, and failed API requests;
 - standalone health-command validation and entry-point wiring.
+- immediate submitted-order ID persistence, direct-ID cleanup, and partial-cleanup durability;
+- restart recovery that preserves unresolved IDs and avoids re-cancelling completed IDs;
+- lifecycle logging for starts, cycle boundaries, completion, cycle failures, cleanup failures, and recovery outcomes;
+- a controlled two-order demo verification using direct returned-ID cancellation.
 
 Final Day 24 validation:
 
@@ -178,7 +192,7 @@ uv run ruff check .
 uv run python -m pytest
 ```
 
-Expected result: Ruff formatting and lint checks complete successfully, and pytest reports `262 passed`.
+Expected result: Ruff formatting and lint checks complete successfully, and pytest reports `307 passed`.
 
 ## Completed checkpoints
 
@@ -207,7 +221,7 @@ Expected result: Ruff formatting and lint checks complete successfully, and pyte
 | 21 | Inventory flattening and pre-flatten quote-cancellation safety | 206 |
 | 22 | Read-only retry, backoff, rate-limit handling, and write no-retry guarantees | 224 |
 | 23 | Operational observability, API-contract hardening, crossed-book safety, and supervised demo lifecycle verification | 232 |
-| 24 | Restart cleanup recovery, shared authenticated-client sessions, and independent market health check | 262 |
+| 24 | Durable returned-order ID cleanup/recovery, lifecycle operational logs, shared sessions, health check, and controlled demo verification | 307 |
 
 ## Agreed next-phase roadmap
 

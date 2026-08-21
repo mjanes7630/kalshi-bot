@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from kalshi_bot.api.client import KalshiClient
 from kalshi_bot.execution.cancellation import retrieve_all_resting_orders
 from kalshi_bot.execution.models import ExecutionPlan
@@ -15,6 +17,7 @@ async def reconcile_execution_plan(
     order_submission_enabled: bool,
     order_cancellation_enabled: bool,
     client_order_id_prefix: str | None = None,
+    lifecycle_state_path: Path | None = None,
 ) -> ReconciliationDecision:
     resting_orders = await retrieve_all_resting_orders(
         client=client,
@@ -60,8 +63,9 @@ async def reconcile_execution_plan(
         await submit_execution_plan(
             reconciliation_plan,
             client=client,
-            order_submission_enabled=True,
             client_order_id_prefix=client_order_id_prefix or "",
+            lifecycle_state_path=lifecycle_state_path,
+            order_submission_enabled=True,
         )
 
     return decision

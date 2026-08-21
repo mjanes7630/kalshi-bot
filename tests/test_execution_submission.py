@@ -18,6 +18,11 @@ from kalshi_bot.execution.models import (
     OrderSide,
     TimeInForce,
 )
+from kalshi_bot.execution.state import (
+    LifecycleState,
+    load_lifecycle_state,
+    save_lifecycle_state,
+)
 from kalshi_bot.execution.submission import (
     build_create_order_request,
     submit_execution_plan,
@@ -128,7 +133,7 @@ def test_submit_execution_plan_submits_each_intent_with_unique_ids() -> None:
     assert buy_client_order_id != sell_client_order_id
 
 
-def test_submit_execution_plan_cancels_submitted_order_after_failure() -> None:
+def test_submit_execution_plan_cancels_submitted_order_after_failure(tmp_path) -> None:
     execution_plan = ExecutionPlan(
         ticker="TEST-MARKET",
         order_intents=(
@@ -155,6 +160,15 @@ def test_submit_execution_plan_cancels_submitted_order_after_failure() -> None:
         RuntimeError("sell order submission failed"),
     ]
 
+    state_path = tmp_path / "lifecycle-state.json"
+    save_lifecycle_state(
+        LifecycleState(
+            client_order_id_prefix="kbot-session-1234-",
+            ticker="TEST-MARKET",
+        ),
+        state_path=state_path,
+    )
+
     with pytest.raises(
         RuntimeError,
         match="sell order submission failed",
@@ -164,11 +178,14 @@ def test_submit_execution_plan_cancels_submitted_order_after_failure() -> None:
                 execution_plan,
                 client=client,
                 order_submission_enabled=True,
+                client_order_id_prefix="kbot-session-1234-",
+                lifecycle_state_path=state_path,
             )
         )
 
     assert client.create_order.await_count == 2
     client.cancel_order.assert_awaited_once_with("buy-order-123")
+    assert load_lifecycle_state(state_path).submitted_order_ids == ()
 
 
 def test_submit_execution_plan_reports_all_cleanup_failures() -> None:
@@ -262,4 +279,60 @@ def test_build_create_order_request_allows_inventory_flattening_order_to_take_li
         price=Decimal("0.4400"),
         post_only=False,
         time_in_force=KalshiTimeInForce.IMMEDIATE_OR_CANCEL,
+    )
+
+
+def test_submit_execution_plan_persists_each_successful_order_id(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "lifecycle-state.json"
+    save_lifecycle_state(
+        LifecycleState(
+            client_order_id_prefix="kbot-current-session-",
+            ticker="TEST-MARKET",
+        ),
+        state_path=state_path,
+    )
+
+    execution_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(
+            OrderIntent(
+                ticker="TEST-MARKET",
+                side=OrderSide.BUY,
+                price=Decimal("0.4200"),
+                quantity=Decimal("1.00"),
+            ),
+            OrderIntent(
+                ticker="TEST-MARKET",
+                side=OrderSide.SELL,
+                price=Decimal("0.4400"),
+                quantity=Decimal("1.00"),
+            ),
+        ),
+    )
+    buy_response = Mock(spec=CreateOrderResponse)
+    buy_response.order_id = "buy-order-123"
+    sell_response = Mock(spec=CreateOrderResponse)
+    sell_response.order_id = "sell-order-456"
+
+    async def run_test() -> None:
+        client = AsyncMock(spec=KalshiClient)
+        client.create_order.side_effect = [
+            buy_response,
+            sell_response,
+        ]
+
+        await submit_execution_plan(
+            execution_plan,
+            client=client,
+            order_submission_enabled=True,
+            lifecycle_state_path=state_path,
+        )
+
+    asyncio.run(run_test())
+
+    assert load_lifecycle_state(state_path).submitted_order_ids == (
+        "buy-order-123",
+        "sell-order-456",
     )

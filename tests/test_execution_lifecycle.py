@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
 
@@ -685,3 +685,52 @@ def test_reconcile_execution_plan_cancels_resting_quote_before_submitting_flatte
         "cancel:resting-order-123",
         "submit",
     ]
+
+
+def test_reconcile_execution_plan_passes_state_path_to_submission(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "lifecycle-state.json"
+    order_intent = OrderIntent(
+        ticker="TEST-MARKET",
+        side=OrderSide.BUY,
+        price=Decimal("0.4200"),
+        quantity=Decimal("1.00"),
+    )
+    execution_plan = ExecutionPlan(
+        ticker="TEST-MARKET",
+        order_intents=(order_intent,),
+    )
+
+    async def run_test() -> None:
+        client = AsyncMock(spec=KalshiClient)
+        client.get_orders.return_value = GetOrdersResponse(
+            orders=[],
+            cursor="",
+        )
+
+        with patch(
+            "kalshi_bot.execution.lifecycle.submit_execution_plan",
+            new_callable=AsyncMock,
+        ) as submit_execution_plan:
+            await reconcile_execution_plan(
+                execution_plan,
+                client=client,
+                client_order_id_prefix="kbot-current-session-",
+                lifecycle_state_path=state_path,
+                order_submission_enabled=True,
+                order_cancellation_enabled=False,
+            )
+
+        submit_execution_plan.assert_awaited_once_with(
+            ExecutionPlan(
+                ticker="TEST-MARKET",
+                order_intents=(order_intent,),
+            ),
+            client=client,
+            client_order_id_prefix="kbot-current-session-",
+            lifecycle_state_path=state_path,
+            order_submission_enabled=True,
+        )
+
+    asyncio.run(run_test())

@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import uuid4
 
 from kalshi_bot.api.client import KalshiClient
@@ -12,6 +13,10 @@ from kalshi_bot.execution.models import (
     OrderIntent,
     OrderSide,
     TimeInForce,
+)
+from kalshi_bot.execution.state import (
+    record_submitted_order_id,
+    remove_submitted_order_id,
 )
 
 
@@ -47,6 +52,7 @@ async def submit_execution_plan(
     client: KalshiClient,
     order_submission_enabled: bool,
     client_order_id_prefix: str = "",
+    lifecycle_state_path: Path | None = None,
 ) -> tuple[CreateOrderResponse, ...]:
     if not order_submission_enabled:
         return ()
@@ -62,14 +68,26 @@ async def submit_execution_plan(
             order_response = await client.create_order(order_request)
             order_responses.append(order_response)
 
+            if lifecycle_state_path is not None:
+                record_submitted_order_id(
+                    order_id=order_response.order_id,
+                    state_path=lifecycle_state_path,
+                )
+
     except Exception as submission_error:
         cancellation_errors: list[Exception] = []
 
         for order_response in reversed(order_responses):
             try:
                 await client.cancel_order(order_response.order_id)
-            except Exception as cancellation_error:  # noqa: BLE001
-                cancellation_errors.append(cancellation_error)
+            except Exception as cleanup_error:  # noqa: BLE001
+                cancellation_errors.append(cleanup_error)
+            else:
+                if lifecycle_state_path is not None:
+                    remove_submitted_order_id(
+                        order_id=order_response.order_id,
+                        state_path=lifecycle_state_path,
+                    )
 
         if cancellation_errors:
             raise ExceptionGroup(

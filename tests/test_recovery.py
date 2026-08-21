@@ -267,3 +267,90 @@ def test_recover_interrupted_lifecycle_preserves_corrupted_state(
     asyncio.run(run_test())
 
     assert state_path.read_text(encoding="utf-8") == corrupted_state
+
+
+def test_recover_interrupted_lifecycle_cancels_saved_order_ids_without_listing_orders(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "lifecycle-state.json"
+    save_lifecycle_state(
+        LifecycleState(
+            client_order_id_prefix="kbot-prior-session-",
+            ticker="TEST-MARKET",
+            submitted_order_ids=(
+                "saved-order-123",
+                "saved-order-456",
+            ),
+        ),
+        state_path=state_path,
+    )
+
+    async def run_test() -> None:
+        client = AsyncMock(spec=KalshiClient)
+        client.get_orders.return_value = GetOrdersResponse(
+            orders=[],
+            cursor="",
+        )
+
+        await recover_interrupted_lifecycle(
+            client=client,
+            state_path=state_path,
+            order_cancellation_enabled=True,
+        )
+
+        client.get_orders.assert_not_awaited()
+        assert client.cancel_order.await_args_list == [
+            call("saved-order-123"),
+            call("saved-order-456"),
+        ]
+
+    asyncio.run(run_test())
+
+    assert not state_path.exists()
+
+
+def test_recover_interrupted_lifecycle_removes_each_successfully_cancelled_id(
+    tmp_path,
+) -> None:
+    state_path = tmp_path / "lifecycle-state.json"
+    lifecycle_state = LifecycleState(
+        client_order_id_prefix="kbot-prior-session-",
+        ticker="TEST-MARKET",
+        submitted_order_ids=(
+            "first-saved-order-id",
+            "second-saved-order-id",
+        ),
+    )
+    save_lifecycle_state(
+        lifecycle_state,
+        state_path=state_path,
+    )
+
+    async def run_test() -> None:
+        client = AsyncMock(spec=KalshiClient)
+        client.cancel_order.side_effect = [
+            None,
+            RuntimeError("Second cancellation failed."),
+        ]
+
+        with pytest.raises(ExceptionGroup) as errors:
+            await recover_interrupted_lifecycle(
+                client=client,
+                state_path=state_path,
+                order_cancellation_enabled=True,
+            )
+
+        assert str(errors.value.exceptions[0]) == "Second cancellation failed."
+        client.get_orders.assert_not_awaited()
+        assert client.cancel_order.await_args_list == [
+            call("first-saved-order-id"),
+            call("second-saved-order-id"),
+        ]
+
+    asyncio.run(run_test())
+
+    assert load_lifecycle_state(state_path) == LifecycleState(
+        client_order_id_prefix="kbot-prior-session-",
+        ticker="TEST-MARKET",
+        submitted_order_ids=("second-saved-order-id",),
+    )
